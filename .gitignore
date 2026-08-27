@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+
+# Tooling / OS
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+
+# Vercel
+.vercel/
+
+# Local scratch (the dataset itself IS committed - the app needs it in production)
+*.log
+/tmp/

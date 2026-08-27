@@ -1,0 +1,4 @@
+# Only needed to refresh the CSV from Kaggle or to re-profile the dataset.
+kagglehub>=0.3
+pandas>=2.0
+gunicorn>=21.2

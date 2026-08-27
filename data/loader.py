@@ -1,99 +1,132 @@
+"""Dataset access for the dashboard.
+
+Runtime reads the *bundled* dataset only:
+
+    data/ecommerce.db   <- built from data/Ecommerce.csv by scripts/build_dataset.py
+    data/Ecommerce.csv  <- the real Kaggle file, committed to the repo
+
+There is deliberately NO kagglehub / Kaggle API call here: a deployed (serverless)
+instance must not re-download 2.5 MB per cold start, and must work with no Kaggle
+credentials. `scripts/download_dataset.py` is a separate, developer-only tool.
 """
-Dataset loader for Indian E-Commerce Customer Behavior & Purchase.
-Tries multiple sources, validates schema, returns a clean pandas DataFrame.
-"""
+from __future__ import annotations
+
 import os
-import sys
-import logging
+import sqlite3
 
-logger = logging.getLogger(__name__)
+from core.store import Store
 
-DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_PATH = os.path.join(DATA_DIR, "data", "Ecommerce.csv")
-KAGGLE_PATH = os.path.expanduser("~/.cache/kagglehub/datasets/kundanbedmutha/indian-e-commerce-customer-behavior-and-purchase/")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+CSV_NAME = "Ecommerce.csv"
+DB_NAME = "ecommerce.db"
 
 
-def _find_file():
-    candidates = [
-        DATA_PATH,
-        os.path.join(DATA_DIR, "Ecommerce.csv"),
-        os.path.join(os.path.expanduser("~"), "Ecommerce.csv"),
-        "/tmp/Ecommerce.csv",
+def _candidate_paths(filename: str) -> list[str]:
+    """Look for the data file next to the app, in the repo, and in the
+    locations used by serverless bundlers (e.g. Vercel's /var/task)."""
+    raw = os.environ.get("DATA_DIR")
+    ordered = [os.path.join(DATA_DIR, filename)]
+    if raw:
+        ordered.insert(0, os.path.join(raw, filename))
+    here = os.path.dirname(os.path.abspath(__file__))
+    ordered += [
+        os.path.join(here, filename),
+        os.path.join(os.getcwd(), "data", filename),
+        os.path.join(os.getcwd(), filename),
+        "/var/task/data/" + filename,
+        "/tmp/data/" + filename,
     ]
-    # Also search kagglehub downloaded folders
-    try:
-        import kagglehub
-        downloaded = kagglehub.dataset_download("kundanbedmutha/indian-e-commerce-customer-behavior-and-purchase")
-        if downloaded:
-            for root, _, files in os.walk(downloaded):
-                for f in files:
-                    if f.lower().endswith(".csv"):
-                        candidates.insert(0, os.path.join(root, f))
-    except Exception as e:
-        logger.info(f"KaggleHub download attempt failed (expected in sandbox): {e}")
-    for p in candidates:
-        if p and os.path.isfile(p):
-            return p
+    seen, out = set(), []
+    for path in ordered:
+        path = os.path.normpath(path)
+        if path not in seen:
+            seen.add(path)
+            out.append(path)
+    return out
+
+
+def find_file(filename: str) -> str | None:
+    for path in _candidate_paths(filename):
+        if os.path.isfile(path) and os.path.getsize(path) > 0:
+            return path
     return None
 
 
-def load_dataset():
-    filepath = _find_file()
-    if not filepath:
-        # Log clearly for UI/state handling
-        logger.warning("Dataset file not found locally or via KaggleHub. "
-                       "Place Ecommerce.csv in data/ or run kagglehub download script.")
-        return None, "Dataset not found. Place Ecommerce.csv in data/ or run download script."
+def _writable_dir() -> str | None:
+    """First directory we may create files in, for the cold-start safety net.
 
-    import pandas as pd
+    Serverless filesystems (Vercel's ``/var/task``) are read-only, so ``DATA_DIR``
+    and ``/tmp`` are tried before the repo copy.
+    """
+    candidates = []
+    raw = os.environ.get("DATA_DIR")
+    if raw:
+        candidates.append(raw)
+    candidates += [DATA_DIR, "/tmp/data"]
+    for folder in candidates:
+        try:
+            if os.makedirs(folder, exist_ok=True) or True:
+                if os.access(folder, os.W_OK):
+                    return folder
+        except OSError:
+            continue
+    return None
+
+
+def _build_db_from_csv(csv_path: str, db_path: str) -> bool:
+    """Regenerate the SQLite store from the CSV (dev convenience / safety net)."""
     try:
-        df = pd.read_csv(filepath)
-    except Exception as e:
-        return None, f"Failed to read CSV: {e}"
+        import sys
 
-    # Basic validation based on known schema
-    expected_cols = {
-        "customer_id", "session_id", "visit_date", "device_type", "user_type",
-        "marketing_channel", "product_id", "product_category", "unit_price",
-        "quantity", "discount_percent", "discount_amount", "revenue",
-        "pages_viewed", "time_on_site_sec", "added_to_cart", "purchased",
-        "cart_abandoned", "rating", "review_text", "review_helpful_votes",
-        "payment_method", "visit_day", "visit_month", "visit_weekday",
-        "visit_season", "session_duration_bucket", "revenue_normalized", "location"
-    }
-    missing = expected_cols - set(df.columns)
-    if missing:
-        # If file exists but has slightly different naming, adapt
-        pass  # Don't hard-fail; analytics can use available cols
+        scripts = os.path.join(BASE_DIR, "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from build_dataset import main as build_main  # type: ignore
 
-    # Clean visit_date
-    if "visit_date" in df.columns:
-        df["visit_date"] = pd.to_datetime(df["visit_date"], format="%d-%m-%Y", errors="coerce")
-        if df["visit_date"].isna().sum() > 0:
-            # Try other formats
-            df["visit_date"] = pd.to_datetime(df["visit_date"], errors="coerce", dayfirst=True)
+        build_main(csv_path, db_path)
+        return True
+    except Exception as exc:  # pragma: no cover - depends on local env
+        print(f"[loader] could not rebuild {db_path}: {exc}")
+        return False
 
-    # Numeric conversions for common columns
-    numeric_cols = ["unit_price", "quantity", "discount_percent", "discount_amount",
-                    "revenue", "pages_viewed", "time_on_site_sec",
-                    "added_to_cart", "purchased", "cart_abandoned",
-                    "rating", "review_text", "review_helpful_votes",
-                    "payment_method", "visit_day", "visit_month", "visit_weekday",
-                    "visit_season", "revenue_normalized", "location"]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Add derived fields for analytics
-    if "revenue" in df.columns and "quantity" in df.columns and "unit_price" in df.columns:
-        df["calculated_revenue"] = df["unit_price"] * df["quantity"] * (1 - df["discount_percent"]/100)
-    if "visit_date" in df.columns:
-        df["visit_year"] = df["visit_date"].dt.year
-        df["visit_month_name"] = df["visit_date"].dt.month_name()
+def _usable(path: str) -> bool:
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        rows = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        conn.close()
+        return rows > 0
+    except sqlite3.Error:
+        return False
 
-    # Mapping dictionaries for readable labels (approximate from dataset context)
-    df["device_type_label"] = df["device_type"].map({0: "Desktop", 1: "Mobile", 2: "Tablet"}).fillna("Unknown")
-    df["user_type_label"] = df["user_type"].map({0: "New", 1: "Returning"}).fillna("Unknown")
-    df["session_duration_label"] = df["session_duration_bucket"].fillna("Unknown")
 
-    return df, f"Loaded {len(df)} rows, {len(df.columns)} columns from {filepath}"
+def load_store() -> tuple[Store | None, str]:
+    """Return (store, human status). Never raises: the UI degrades gracefully."""
+    db_path = find_file(DB_NAME)
+    if not db_path:
+        csv_path = find_file(CSV_NAME)
+        folder = _writable_dir() if csv_path else None
+        if folder:
+            target = os.path.join(folder, DB_NAME)
+            if _build_db_from_csv(csv_path, target):
+                db_path = target
+        if not db_path:
+            return None, ("Analytics store missing. Run: python scripts/build_dataset.py")
+
+    if not _usable(db_path):
+        return None, f"Analytics store at {db_path} is unreadable or empty."
+
+    store = Store(db_path)
+    rows = store.scalar("SELECT COUNT(*) FROM sessions", (), 0)
+    columns = len(store.columns)
+    meta = store.meta or {}
+    status = f"{rows:,} sessions × {columns} analytics columns • built {meta.get('generated_utc', 'n/a')}"
+    return store, status
+
+
+# ------------------------------------------------------------------ legacy API
+def load_dataset():
+    """Backwards-compatible helper (old code called load_dataset() -> (df, status))."""
+    store, status = load_store()
+    return store, status

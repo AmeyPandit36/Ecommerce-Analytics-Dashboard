@@ -1,0 +1,196 @@
+{# Shared render macros for cards, KPIs, charts and tables #}
+
+{% macro icon(name, cls='') -%}
+<svg class="i {{ cls }}" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>
+{%- endmacro %}
+
+{% macro kpi_grid(items) -%}
+<div class="kpis">
+  {% for k in items %}
+  <div class="kpi tone-{{ k.tone or 'default' }}">
+    <div class="k-label">{{ icon(k.icon) }}<span>{{ k.label }}</span></div>
+    <div class="k-value">{{ k.display }}</div>
+    {% if k.hint %}<div class="k-hint">{{ k.hint }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro chart_card(spec) -%}
+<section class="card span-{{ spec.span or 12 }}" id="chart-{{ spec.id }}">
+  <div class="card-head">
+    <div>
+      <div class="t">{{ spec.title }}</div>
+      {% if spec.subtitle %}<div class="s">{{ spec.subtitle }}</div>{% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="chart-wrap" style="--chart-h: {{ spec.height or 260 }}px">
+      <canvas data-chart="{{ spec.id }}"></canvas>
+    </div>
+  </div>
+  {% if spec.note %}<div class="card-note">{{ spec.note }}</div>{% endif %}
+</section>
+{%- endmacro %}
+
+{% macro charts(items) -%}
+<div class="grid">{% for spec in items %}{{ chart_card(spec) }}{% endfor %}</div>
+{%- endmacro %}
+
+{% macro table_card(spec) -%}
+{% set ns = namespace(scale=1) %}
+{% for col in spec.columns %}
+  {% if col.bar %}{% for row in spec.rows %}
+    {% if row[col.key] and row[col.key] > ns.scale %}{% set ns.scale = row[col.key] %}{% endif %}
+  {% endfor %}{% endif %}
+{% endfor %}
+<section class="card span-{{ spec.span or 12 }}">
+  <div class="card-head">
+    <div>
+      <div class="t">{{ spec.title }}</div>
+      {% if spec.subtitle %}<div class="s">{{ spec.subtitle }}</div>{% endif %}
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          {% for col in spec.columns %}
+          <th class="{% if col.align == 'right' %}num{% endif %}">{{ col.label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in spec.rows %}
+        <tr>
+          {% for col in spec.columns %}
+          <td class="{% if col.align == 'right' %}num{% endif %}{% if loop.first %} key{% endif %}">
+            {%- if col.bar and row[col.key] is defined and row[col.key] is not none -%}
+              <span class="bar-cell">
+                <span class="bar" style="width: {{ (row[col.key] / ns.scale * 100) | round(1) }}%"></span>
+                <span>{{ row[col.key] }}%</span>
+              </span>
+            {%- else -%}
+              {{ row[col.key] if row[col.key] is not none else 'n/a' }}
+            {%- endif -%}
+          </td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ spec.columns | length }}" class="empty">{{ spec.empty or 'No rows for the current filters.' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if spec.note %}<div class="card-note">{{ spec.note }}</div>{% endif %}
+</section>
+{%- endmacro %}
+
+{% macro tables(items) -%}
+<div class="grid">{% for spec in items %}{{ table_card(spec) }}{% endfor %}</div>
+{%- endmacro %}
+
+{% macro insights(items) -%}
+<div class="insights">
+  {% for item in items %}
+  <article class="insight tone-{{ item.tone }}">
+    <div class="ico">{{ icon(item.icon) }}</div>
+    <div>
+      <h4>{{ item.title }}</h4>
+      <p>{{ item.text }}</p>
+      {% if item.metric %}<div class="m"><b>{{ item.metric }}</b><span>{{ item.metric_label }}</span></div>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro funnel(steps, dropoffs) -%}
+<section class="card span-12">
+  <div class="card-head"><div><div class="t">Funnel</div>
+    <div class="s">Computed from the session flags, not modelled</div></div></div>
+  <div class="card-body">
+    <div class="funnel">
+      {% for step in steps %}
+      <div class="step">
+        <div class="name">{{ step.name }}</div>
+        <div class="track">
+          <div class="fill" style="width: {{ [step.pct, 4] | max | round(1) }}%; background: linear-gradient(90deg, {{ '#22d3ee' if loop.first else '#34d399' if loop.last else '#60a5fa' }}, rgba(96,165,250,.55));">
+            {{ num(step.value) }}
+          </div>
+        </div>
+        <div class="val">{{ pct(step.pct) }} of sessions<br><span class="count">{{ step.note }}</span></div>
+      </div>
+      {% endfor %}
+      <div class="drops">
+        {% for drop in dropoffs %}
+        <div class="drop">{{ drop.name }}: <b>−{{ num(drop.value) }}</b> sessions ({{ pct(drop.pct) }})</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>
+{%- endmacro %}
+
+{% macro methodology(data) -%}
+<div class="note">
+  {{ icon('info') }}
+  <div>
+    <div class="t">Segmentation method</div>
+    <p>{{ data.method }}. Cut points: <b>High value ≥ {{ data.high_cut_label }}</b>,
+      <b>Medium value ≥ {{ data.low_cut_label }}</b>, everything below is Low value, and any customer
+      with no purchase in range is a “Window shopper”. Computed on {{ num(data.buyers) }} of
+      {{ num(data.customers) }} customers that purchased — no quotas, no fixed percentages.</p>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro quality(data) -%}
+<div class="grid">
+  <section class="card span-5">
+    <div class="card-head"><div><div class="t">Quality score</div>
+      <div class="s">100 minus the penalties below — each term is shown so the number is auditable</div></div></div>
+    <div class="card-body">
+      <div class="score-ring">
+        <div class="num">{{ data.score.value }}</div>
+        <ul>
+          <li>start <b>100</b></li>
+          {% for term in data.score.terms %}
+          <li>− {{ term.penalty }} &nbsp;{{ term.name }} <span class="count">({{ term.detail }})</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </section>
+  <section class="card span-7">
+    <div class="card-head"><div><div class="t">Semantic checks</div>
+      <div class="s">Automated findings from scripts/build_dataset.py, verified row by row against the CSV</div></div></div>
+    <div class="card-body">
+      <div class="findings">
+        {% for finding in data.findings %}
+        <div class="finding" data-sev="{{ finding.severity }}">
+          <div class="h"><span class="badge">{{ finding.severity }}</span>{{ finding.title }}</div>
+          <p>{{ finding.detail }}</p>
+          {% if finding.column %}<div class="col">column: {{ finding.column }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  <section class="card span-12">
+    <div class="card-head"><div><div class="t">Provenance</div>
+      <div class="s">The exact file the numbers come from</div></div></div>
+    <div class="card-body">
+      <dl class="kv">
+        <dt>Dataset</dt><dd>{{ data.meta.get('dataset_slug', 'n/a') }}</dd>
+        <dt>File</dt><dd><code>{{ data.meta.get('source_csv', 'n/a') }}</code> · {{ num(data.meta.get('csv_bytes')) }} bytes</dd>
+        <dt>SHA-256</dt><dd><code>{{ data.meta.get('csv_sha256', 'n/a') }}</code></dd>
+        <dt>Shape</dt><dd>{{ num(data.meta.get('rows')) }} rows × {{ data.meta.get('csv_columns') }} columns</dd>
+        <dt>Date span</dt><dd>{{ data.meta.get('date_min') }} → {{ data.meta.get('date_max') }}</dd>
+        <dt>Store built</dt><dd>{{ data.meta.get('generated_utc') }} (SQLite, read-only)</dd>
+        <dt>Types</dt><dd>{% for name, count in data.dtype_counts %}{{ name }} × {{ count }}{{ ' · ' if not loop.last }}{% endfor %}</dd>
+      </dl>
+    </div>
+  </section>
+</div>
+{%- endmacro %}
