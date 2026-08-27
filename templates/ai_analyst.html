@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}AI Analyst — DataArena{% endblock %}
+{% block page_title %}AI Analyst{% endblock %}
+{% block page_subtitle %}Ask questions about your dataset using real analytics{% endblock %}
+
+{% block content %}
+<div class="fade-in space-y-6">
+  <div class="glass rounded-2xl p-6 border border-cyan-400/20 shadow-2xl shadow-cyan-900/10">
+    <div class="flex items-center gap-3 mb-2">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-fuchsia-500 to-rose-600 flex items-center justify-center shadow-lg"><i class="fa-solid fa-wand-magic-sparkles text-white"></i></div>
+      <h2 class="text-xl font-extrabold text-white">AI Analyst</h2>
+    </div>
+    <p class="text-sm text-slate-300 mb-4">Ask anything about your e-commerce data. The system calculates answers directly from the dataset.</p>
+
+    <form onsubmit="event.preventDefault(); askAI(this.q.value);" class="flex gap-2">
+      <input name="q" type="text" placeholder="e.g., Which category performs best?" class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/60 font-medium" />
+      <button type="submit" class="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-5 py-3 rounded-xl text-sm font-bold shadow-lg shadow-cyan-900/30 transition">Analyze</button>
+    </form>
+
+    <div class="flex flex-wrap gap-2 mt-4">
+      <button onclick="askAI('Which category performs best?')" class="text-[11px] bg-white/5 hover:bg-cyan-900/30 border border-white/10 rounded-full px-3 py-1 text-slate-200 transition">Category best</button>
+      <button onclick="askAI('What are the top products?')" class="text-[11px] bg-white/5 hover:bg-cyan-900/30 border border-white/10 rounded-full px-3 py-1 text-slate-200 transition">Top products</button>
+      <button onclick="askAI('Which payment method is most popular?')" class="text-[11px] bg-white/5 hover:bg-cyan-900/30 border border-white/10 rounded-full px-3 py-1 text-slate-200 transition">Payment method</button>
+      <button onclick="askAI('Which customers are most valuable?')" class="text-[11px] bg-white/5 hover:bg-cyan-900/30 border border-white/10 rounded-full px-3 py-1 text-slate-200 transition">Valuable customers</button>
+      <button onclick="askAI('What patterns do you see?')" class="text-[11px] bg-white/5 hover:bg-cyan-900/30 border border-white/10 rounded-full px-3 py-1 text-slate-200 transition">Patterns</button>
+      <button onclick="askAI('Is discount associated with purchasing?')" class="text-[11px] bg-white/5 hover:bg-cyan-900/30 border border-white/10 rounded-full px-3 py-1 text-slate-200 transition">Discount correlation</button>
+    </div>
+  </div>
+
+  <div id="aiResult" class="hidden">
+    <div class="card-dark rounded-2xl p-6 shadow-xl shadow-black/20">
+      <div class="flex items-center gap-2 mb-3"><span class="text-[10px] font-bold uppercase tracking-wider text-cyan-300 bg-cyan-900/30 px-2 py-0.5 rounded">ANSWER</span></div>
+      <h3 id="aiAnswer" class="text-lg font-extrabold text-white mb-3"></h3>
+      <div class="grid md:grid-cols-3 gap-4 text-sm">
+        <div class="glass rounded-xl p-4"><div class="text-xs text-slate-400 uppercase font-semibold mb-1">Evidence</div><div id="aiEvidence" class="text-white font-medium"></div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-slate-400 uppercase font-semibold mb-1">Interpretation</div><div id="aiInterpretation" class="text-white font-medium"></div></div>
+        <div class="glass rounded-xl p-4"><div class="text-xs text-slate-400 uppercase font-semibold mb-1">Limitations</div><div id="aiLimitations" class="text-slate-300"></div></div>
+      </div>
+      <div id="aiVisWrap" class="mt-4 hidden"><canvas id="aiChart" height="220"></canvas></div>
+    </div>
+  </div>
+
+  {% if df_loaded %}
+  <div class="grid md:grid-cols-3 gap-4">
+    <div class="card-dark rounded-2xl p-5"><h4 class="font-bold text-white mb-2">Dataset</h4><p class="text-sm text-slate-300">{{ df_status }}</p></div>
+    <div class="card-dark rounded-2xl p-5"><h4 class="font-bold text-white mb-2">Columns</h4><p class="text-sm text-slate-300 font-mono">{{ df.columns.tolist()[:10] | join(", ") }}</p></div>
+    <div class="card-dark rounded-2xl p-5"><h4 class="font-bold text-white mb-2">Rows</h4><p class="text-sm text-slate-300 font-mono">{{ "{:,}".format(df.shape[0]) }}</p></div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+async function askAI(q) {
+  document.getElementById('aiResult').classList.remove('hidden');
+  document.getElementById('aiAnswer').textContent = 'Analyzing...';
+  document.getElementById('aiEvidence').textContent = 'Identifying relevant variables...';
+  document.getElementById('aiInterpretation').textContent = 'Calculating metrics...';
+  document.getElementById('aiLimitations').textContent = 'Checking assumptions...';
+  try {
+    const res = await fetch('/api/ask', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question:q})});
+    const data = await res.json();
+    document.getElementById('aiAnswer').textContent = data.answer || 'No answer.';
+    document.getElementById('aiEvidence').textContent = data.evidence || '';
+    document.getElementById('aiInterpretation').textContent = data.interpretation || '';
+    document.getElementById('aiLimitations').textContent = data.limitations || '';
+    if (data.visualization && document.getElementById('aiChart')) {
+      document.getElementById('aiVisWrap').classList.remove('hidden');
+      const ctx = document.getElementById('aiChart').getContext('2d');
+      new Chart(ctx, {type: data.visualization === 'scatter' ? 'scatter' : data.visualization === 'donut' ? 'doughnut' : 'bar', data:{labels:['A','B','C'], datasets:[{label:'Value', data:[1,2,3], backgroundColor:'#06b6d4'}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}});
+    } else {
+      document.getElementById('aiVisWrap').classList.add('hidden');
+    }
+  } catch (e) {
+    document.getElementById('aiAnswer').textContent = 'Error analyzing.';
+  }
+}
+</script>
+{% endblock %}
