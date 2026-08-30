@@ -16,9 +16,20 @@ WSGI app, so the same code also runs unchanged on Render / Railway / Fly.io / an
 
 ## 0. Fastest path — GitHub Actions (no local network access needed)
 
-`.github/workflows/deploy.yml` runs on every push to `main` and on demand. It first boots the app
-and runs `scripts/smoke_test.py` (231 checks), then deploys to whichever host has a credential
-configured, then re-runs the same 231 checks against the **live** URL.
+[`deploy/github-actions-deploy.yml.example`](deploy/github-actions-deploy.yml.example) is a
+ready-made workflow. **Copy it to `.github/workflows/deploy.yml`** (this sandbox's GitHub App token
+has no `workflows` scope, so it ships as a template rather than being committed directly to that
+path):
+
+```bash
+mkdir -p .github/workflows
+cp deploy/github-actions-deploy.yml.example .github/workflows/deploy.yml
+git add .github/workflows/deploy.yml && git commit -m "ci: deploy workflow" && git push
+```
+
+It runs on every push to `main` and on demand. It first boots the app and runs
+`scripts/smoke_test.py` (231 checks), then deploys to whichever host has a credential configured,
+then re-runs the same 231 checks against the **live** URL.
 
 1. Add **one** of these under *Settings → Secrets and variables → Actions → New repository secret*:
 
