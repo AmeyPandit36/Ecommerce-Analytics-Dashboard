@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}AI Analyst · Ecommerce Analytics{% endblock %}
+
+{% block content %}
+<div class="ask-hero">
+  <h3>Ask the dataset a question</h3>
+  <p>
+    This is a deterministic analytics engine, not a chatbot. Your question is matched to a set of
+    query templates, each one runs SQL against <code>data/ecommerce.db</code> (built from the real
+    Kaggle CSV) with your current filters, and the answer comes back with its evidence table, a chart,
+    how it was computed and what it cannot see. If a question needs a column this dataset does not
+    have, the analyst says so instead of guessing.
+  </p>
+  <form class="ask-form" data-ask-form>
+    <input type="text" name="question" placeholder="e.g. Which category performs best?"
+           aria-label="Your question" autocomplete="off" {% if not df_loaded %}disabled{% endif %}>
+    <button class="btn primary" type="submit">
+      <svg class="i"><use href="#i-sparkles"></use></svg>Analyse
+    </button>
+  </form>
+  <div class="suggests">
+    {% for example in examples %}
+    <button class="suggest" type="button" data-ask="{{ example }}">{{ example }}</button>
+    {% endfor %}
+  </div>
+  {% if active_filters %}
+  <p style="margin-top:12px;font-size:11.5px;color:var(--text-faint)">
+    Answers respect {{ active_filters | length }} active filter{{ 's' if active_filters | length != 1 }}:
+    {% for item in active_filters %}{{ item.display }}{{ ' · ' if not loop.last }}{% endfor %}
+  </p>
+  {% else %}
+  <p style="margin-top:12px;font-size:11.5px;color:var(--text-faint)">
+    Answers currently cover the whole dataset — use the filter bar above to scope them.
+  </p>
+  {% endif %}
+</div>
+
+<div class="answers" data-answers>
+  <noscript>
+    <div class="note warn"><svg class="i"><use href="#i-warning"></use></svg>
+      <div><div class="t">JavaScript is required for the interactive analyst</div>
+      <p>You can still use it without JS: <code>/api/ask?q=Which+category+performs+best</code> returns the
+      same computed answer as JSON.</p></div>
+    </div>
+  </noscript>
+</div>
+
+<div class="grid">
+  <section class="card span-6">
+    <div class="card-head"><div><div class="t">What it can answer</div>
+      <div class="s">Each topic below is backed by its own SQL aggregate</div></div></div>
+    <div class="card-body tight">
+      <dl class="kv">
+        <dt>Categories</dt><dd>revenue, conversion, AOV, ratings, ranking</dd>
+        <dt>Products</dt><dd>top / worst products, concentration, ratings</dd>
+        <dt>Customers</dt><dd>value ranking, segments and their thresholds</dd>
+        <dt>Payments</dt><dd>popularity, revenue share, abandonment</dd>
+        <dt>Discounts</dt><dd>correlation with purchase, conversion by depth</dd>
+        <dt>Journey</dt><dd>funnel counts, drop-off, device and channel effects</dd>
+        <dt>Time</dt><dd>peaks by day, week, month, season, weekday</dd>
+        <dt>Quality</dt><dd>row counts, missing values, duplicates, hashes</dd>
+      </dl>
+    </div>
+  </section>
+  <section class="card span-6">
+    <div class="card-head"><div><div class="t">What it will refuse</div>
+      <div class="s">Because the columns do not exist in <code>data/Ecommerce.csv</code></div></div></div>
+    <div class="card-body tight">
+      <dl class="kv">
+        <dt>Product names</dt><dd>only <code>product_id</code> integers are published</dd>
+        <dt>Category / payment names</dt><dd>encoded as integers, no decoding map</dd>
+        <dt>Cities &amp; states</dt><dd><code>location</code> is an encoded id (0-224)</dd>
+        <dt>Profit &amp; margin</dt><dd>no cost column, so revenue is the ceiling</dd>
+        <dt>Returns &amp; delivery</dt><dd>not part of this dataset</dd>
+        <dt>Demographics</dt><dd>no age or gender fields exist</dd>
+        <dt>Ad spend / ROAS</dt><dd>channel revenue only, no spend</dd>
+        <dt>Forecasting</dt><dd>single-year synthetic data, no trend claim</dd>
+      </dl>
+    </div>
+  </section>
+</div>
+{% endblock %}

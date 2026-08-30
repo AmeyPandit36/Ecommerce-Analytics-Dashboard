@@ -1,0 +1,4 @@
+# Runtime: Flask only.
+# All analytics run on Python's stdlib sqlite3 over data/ecommerce.db, so no
+# pandas / numpy wheels are installed on the server (small, fast Vercel bundle).
+Flask>=3.0,<4
