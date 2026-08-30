@@ -30,9 +30,10 @@ PAGES = ["/", "/overview", "/customers", "/conversion", "/categories",
          "/static/app.css", "/static/app.js", "/static/vendor/chart.umd.min.js"]
 REPORT_PAGES = ["/overview", "/customers", "/conversion", "/categories"]
 QUERIES = ["?cat=2", "?pay=1", "?dev=0", "?utype=1", "?chan=4", "?loc=46", "?bucket=Long",
-           "?purch=1", "?purch=0", "?month=11", "?rmin=4", "?dmin=15", "?dmax=0",
+           "?purch=1", "?purch=0", "?month=11",
+           "?seg=high", "?seg=window", "?dbucket=0", "?dbucket=3", "?pband=2",
            "?from=2024-03-01", "?to=15-06-2024", "?cat=2&pay=1&month=6", "?cat=99",
-           "?loc=not-a-real-value", "?month=0"]
+           "?loc=not-a-real-value", "?month=0", "?seg=not-a-segment"]
 
 
 class Client:
@@ -86,12 +87,6 @@ def csv_totals(query: str) -> dict:
             if "chan" in wanted and row["marketing_channel"] != wanted["chan"]:
                 continue
             if "loc" in wanted and row["location"] != wanted["loc"]:
-                continue
-            if "rmin" in wanted and float(row["rating"]) < float(wanted["rmin"]):
-                continue
-            if "dmin" in wanted and float(row["discount_percent"]) < float(wanted["dmin"]):
-                continue
-            if "dmax" in wanted and float(row["discount_percent"]) > float(wanted["dmax"]):
                 continue
             if "from" in wanted or "to" in wanted:
                 day, month, year = row["visit_date"].split("-")
@@ -171,7 +166,7 @@ def main(base_url: str | None = None) -> int:
         data = json.loads(body.decode())
         check(f"filtered{query} differs from baseline",
               data.get("totals") != baseline.get("totals")
-              or query in ("?cat=99", "?loc=not-a-real-value", "?month=0"),
+              or query in ("?cat=99", "?loc=not-a-real-value", "?month=0", "?seg=not-a-segment"),
               "identical totals → filter ignored")
         if query == "?cat=2":
             check("cat=2 revenue < total revenue",
@@ -203,6 +198,16 @@ def main(base_url: str | None = None) -> int:
     check("abandonment ≈ 65.15%", abs(totals["abandon_rate"] - 65.1548) < 0.01,
           f"{totals['abandon_rate']}")
     check("revenue ≈ ₹10.12M", abs(totals["revenue"] - 10116169.06) < 1, f"{totals['revenue']}")
+
+    # derived slicers (segment / discount bucket / price band) update the aggregates
+    check("seg=high → 836 customers",
+          json.loads(client.get("/api/summary?seg=high")[1].decode())["totals"]["customers"] == 836)
+    check("seg=high → 3,377 sessions",
+          json.loads(client.get("/api/summary?seg=high")[1].decode())["totals"]["sessions"] == 3377)
+    check("dbucket=3 → 2,425 sessions",
+          json.loads(client.get("/api/summary?dbucket=3")[1].decode())["totals"]["sessions"] == 2425)
+    check("pband=2 → 4,732 sessions",
+          json.loads(client.get("/api/summary?pband=2")[1].decode())["totals"]["sessions"] == 4732)
 
     print()
     print(f"{checks} checks, {len(failures)} failures")

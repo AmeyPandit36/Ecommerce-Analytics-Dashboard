@@ -93,8 +93,14 @@ and the chip bar, so they cannot drift apart. Every page, chart, table, KPI and 
 | `loc` | `location` | select |
 | `bucket` | `session_duration_bucket` | select |
 | `purch` | `purchased` | select (outcome) |
+| `seg` | customer segment | select (High / Mid / Core / Window) |
+| `dbucket` | discount bucket | select (0% · 5–10% · 11–20% · 21–30%) |
+| `pband` | price band | select (≤ ₹500 … ₹1,501–2,000) |
 | `rmin` | `rating` | preset select |
 | `dmin`, `dmax` | `discount_percent` | preset selects |
+
+The `seg`, `dbucket` and `pband` slicers are derived columns (customer value segment,
+discount depth, unit-price band) built from fixed SQL expressions — never from user input.
 
 A filter combination that matches nothing renders a single clear "No rows match these filters" note
 instead of a page of zeros or a stack trace. **Reset Filters** clears everything.

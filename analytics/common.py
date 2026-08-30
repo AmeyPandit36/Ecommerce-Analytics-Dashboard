@@ -161,7 +161,7 @@ def fmt(value, kind: str) -> str:
     return str(value)
 
 
-def kpi(label, value, kind="num", hint="", tone="default", icon="sparkle", foot=""):
+def kpi(label, value, kind="num", hint="", tone="default", icon="info", foot=""):
     """One KPI tile: raw value + formatted display, so JS can re-format too."""
     number_value = None
     if isinstance(value, (int, float)):
@@ -179,7 +179,7 @@ def kpis(pairs, data: dict) -> list[dict]:
         kind = pair[2] if len(pair) > 2 else METRICS.get(metric, ("", "num"))[1]
         hint = pair[3] if len(pair) > 3 else ""
         tone = pair[4] if len(pair) > 4 else "default"
-        icon = pair[5] if len(pair) > 5 else "sparkle"
+        icon = pair[5] if len(pair) > 5 else "info"
         out.append(kpi(label, data.get(metric), kind, hint, tone, icon))
     return out
 

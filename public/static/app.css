@@ -164,11 +164,11 @@ code { font-family: var(--mono); font-size: .9em; background: #eef1f4; padding: 
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
   box-shadow: var(--shadow); overflow: hidden;
 }
-.card-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 6px; }
-.card-title { min-width: 0; }
+.card-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 6px; flex-wrap: wrap; }
+.card-title { min-width: 0; flex: 1 1 220px; }
 .card-title .t { font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; }
 .card-title .s { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; line-height: 1.45; }
-.card-aside { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.card-aside { margin-left: auto; display: flex; gap: 6px; align-items: flex-start; }
 .card-body { padding: 6px 16px 14px; }
 .card-note { padding: 0 16px 13px; font-size: 11px; color: var(--text-faint); line-height: 1.5; }
 

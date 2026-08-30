@@ -72,7 +72,7 @@ def inr_m(value) -> str:
 
 
 def inr_short(value) -> str:
-    """Compact Indian currency: ₹1.01 Cr, ₹12.4 L, ₹8,432."""
+    """Compact currency: ₹2.04M for millions, ₹1,801 for thousands, ₹837.83 for small."""
     if value is None:
         return "n/a"
     try:
@@ -81,10 +81,8 @@ def inr_short(value) -> str:
         return "n/a"
     sign = "-" if value < 0 else ""
     v = abs(value)
-    if v >= 1e7:
-        return f"{sign}₹{v / 1e7:.2f} Cr"
-    if v >= 1e5:
-        return f"{sign}₹{v / 1e5:.2f} L"
+    if v >= 1e6:
+        return f"{sign}₹{v / 1e6:.2f}M"
     if v >= 1000:
         return f"{sign}₹{number(v)}"
     return f"{sign}₹{v:,.2f}"

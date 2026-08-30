@@ -13,13 +13,6 @@
         {% if spec.kind == 'date' %}
           <input id="f-{{ spec.key }}" name="{{ spec.key }}" type="date" data-filter-key="{{ spec.key }}" value="{{ value }}"
                  min="{{ store.meta.get('date_min', '') }}" max="{{ store.meta.get('date_max', '') }}">
-        {% elif spec.kind == 'int' and spec.key in ('rmin', 'dmin', 'dmax') %}
-          <select id="f-{{ spec.key }}" name="{{ spec.key }}" data-filter-key="{{ spec.key }}">
-            <option value="">Any</option>
-            {% for option in filter_options.get(spec.key, []) %}
-              <option value="{{ option.value }}" {% if value == option.value | string %}selected{% endif %}>{{ option.label }}</option>
-            {% endfor %}
-          </select>
         {% else %}
           <select id="f-{{ spec.key }}" name="{{ spec.key }}" data-filter-key="{{ spec.key }}">
             <option value="">All</option>

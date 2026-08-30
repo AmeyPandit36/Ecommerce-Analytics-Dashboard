@@ -168,7 +168,7 @@ def overview(store, where: str, params: tuple) -> dict:
                     subtitle=f"{'Daily' if gran == 'day' else ('Weekly' if gran == 'week' else 'Monthly')} "
                              "buckets · revenue (₹, left) vs conversion (%, right)",
                     span=8, unit="inr", height=290,
-                    callout={"text": "Revenue tracks sessions; conversion is stable",
+                    callout={"text": "Conversion is stable across the year",
                              "tone": "accent"})
 
     cats = C.group(store, where, params, "category",
@@ -362,7 +362,7 @@ def customers_page(store, where: str, params: tuple) -> dict:
     ], [{
         "segment": s["segment"], "customers": F.number(s["customers"]),
         "share": F.pct(s["customer_share"], 2), "revenue": F.inr_short(s["revenue"]),
-        "revenue_share": F.pct(s["revenue_share"], 2), "aov": F.inr_short(s["aov"]),
+        "revenue_share": F.pct(s["revenue_share"], 2), "aov": F.inr(s["aov"]),
         "conversion": F.pct(s["conversion"], 2), "repeat_rate": F.pct(s["repeat_rate"], 1),
     } for s in seg["segments"]], span=12,
         subtitle="High value = top 20% of buyers · Mid = next 30% · Core = remaining 50% · "
@@ -494,7 +494,7 @@ def conversion_page(store, where: str, params: tuple) -> dict:
                           "axis": "y1", "color": "teal"}],
                         subtitle="Conversion stays ~22% regardless of discount depth",
                         span=6, unit="count", height=300,
-                        callout={"text": "No significant relationship (r ≈ 0.00)", "tone": "warn"})
+                        callout={"text": "No significant relationship", "tone": "warn"})
 
     disc_aov = C.chart("conv_discount_aov", "Discount depth vs AOV", "bar",
                        [d["label"] for d in disc],
@@ -573,7 +573,7 @@ def categories_page(store, where: str, params: tuple) -> dict:
                         [c["label"] for c in cats],
                         [{"label": "Avg price", "data": [c["avg_price"] for c in cats], "color": "teal"}],
                         subtitle="Higher price categories carry the revenue lead",
-                        span=6, unit="inr", height=280,
+                        span=6, unit="inr", height=300,
                         callout={"text": "Revenue follows price level", "tone": "accent"})
 
     # price bands
@@ -603,7 +603,7 @@ def categories_page(store, where: str, params: tuple) -> dict:
                         [p["label"] for p in pays],
                         [{"label": "Purchases", "data": [p["purchases"] for p in pays], "color": "teal"}],
                         subtitle="Completed purchases by encoded payment method",
-                        span=6, unit="count", height=280,
+                        span=6, unit="count", height=300,
                         callout={"text": "Spread across all methods", "tone": "default"})
 
     cat_table = C.table("Category performance", [
@@ -615,7 +615,7 @@ def categories_page(store, where: str, params: tuple) -> dict:
         {"key": "sessions", "label": "Sessions", "align": "right"},
     ], [{
         "label": c["label"], "revenue": F.inr_short(c["revenue"]),
-        "conversion": F.pct(c["conversion"], 2), "aov": F.inr_short(c["aov"]),
+        "conversion": F.pct(c["conversion"], 2), "aov": F.inr(c["aov"]),
         "avg_price": F.inr(c["avg_price"]), "sessions": F.number(c["sessions"]),
     } for c in cats], span=12,
         subtitle="Categories are label-encoded in the source dataset (no decoding map ships), "

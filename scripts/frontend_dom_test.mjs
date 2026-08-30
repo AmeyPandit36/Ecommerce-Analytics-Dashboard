@@ -83,8 +83,13 @@ created.length = 0;
   check("export link present", !!d.querySelector("[data-export]"));
   check("reset link present", !!d.querySelector("[data-reset]"));
   const selects = d.querySelectorAll("[data-filterbar] select[data-filter-key]");
-  check("filter bar has ≥8 controls", selects.length >= 8, `${selects.length}`);
+  const controls = d.querySelectorAll("[data-filterbar] [data-filter-key]");
+  check("filter bar has ≥14 controls", controls.length >= 14, `${controls.length}`);
   check("filter options are real values", [...selects].every((s) => s.options.length > 1));
+  const keys = [...controls].map(s => s.dataset.filterKey);
+  ["cat", "pay", "utype", "seg", "dbucket", "pband"].forEach(k =>
+    check(`slicer ${k} present`, keys.includes(k), keys.join(",")));
+  check("no lakh (L) notation remains", !/₹\d+\.\d+ L/.test(d.body.textContent));
   check("title is the report title", /E-Commerce Customer Behavior & Purchase Analysis/.test(d.querySelector(".report-head h1")?.textContent || ""));
 }
 
@@ -151,6 +156,22 @@ console.log("Empty state /overview?cat=99");
         (d.querySelector(".note-title")?.textContent || "no note").trim());
   check("empty note names the dataset span", /25,000 sessions/.test(d.body.textContent));
   check("no crash text", !/Traceback|NoneType/.test(d.body.textContent));
+}
+
+console.log("Segment slicer /customers?seg=high");
+{
+  const { d, problems } = await page("/customers?seg=high");
+  check("no JS errors", problems.length === 0, problems.slice(0, 3).join(" | "));
+  check("segment chip shown", /High value/.test(d.body.textContent), "no segment chip");
+  check("segment filter applied (836 in range)", /836/.test(d.body.textContent));
+}
+
+console.log("Discount + price slicers /categories?dbucket=3&pband=2");
+{
+  const { d, problems } = await page("/categories?dbucket=3&pband=2");
+  check("no JS errors", problems.length === 0, problems.slice(0, 3).join(" | "));
+  check("discount bucket chip shown", /21–30%/.test(d.body.textContent), "no dbucket chip");
+  check("price band chip shown", /₹1,001–1,500/.test(d.body.textContent), "no pband chip");
 }
 
 console.log(`\n${passes} passed, ${fails} failed ${fails ? "✗" : "✓"}`);

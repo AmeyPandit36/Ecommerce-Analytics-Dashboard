@@ -224,32 +224,19 @@ def create_app() -> Flask:
     def categories_route():
         return render_report_page("categories")
 
-    # Legacy endpoints now redirect to the closest report page.
+    # URL aliases for the current pages (kept for bookmarks / external links).
     @app.route("/dashboard")
-    def legacy_dashboard():
+    def alias_dashboard():
         return redirect(url_for("overview"))
 
     @app.route("/journey")
     @app.route("/funnel")
-    def legacy_journey():
+    def alias_conversion():
         return redirect(url_for("conversion"))
 
     @app.route("/category-price")
-    def legacy_category_price():
+    def alias_categories():
         return redirect(url_for("categories"))
-
-    @app.route("/sales")
-    def legacy_sales():
-        return redirect(url_for("categories"))
-
-    @app.route("/data-quality")
-    @app.route("/quality")
-    def legacy_quality():
-        return redirect(url_for("categories"))
-
-    @app.route("/ai-analyst")
-    def legacy_analyst():
-        return redirect(url_for("overview"))
 
     # --------------------------------------------------------------------- apis
     @app.route("/api/summary")

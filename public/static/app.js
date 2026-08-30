@@ -28,13 +28,10 @@
   }
   const nf = (digits) => new Intl.NumberFormat('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-  function fmtINR(v, compact) {
+  function fmtINR(v) {
     if (v === null || v === undefined || isNaN(v)) return 'n/a';
-    const sign = v < 0 ? '-' : ''; const a = Math.abs(v);
-    if (a >= 1e7) return `${sign}₹${(a / 1e7).toFixed(2)} Cr`;
-    if (a >= 1e5) return `${sign}₹${(a / 1e5).toFixed(2)} L`;
-    if (compact && a >= 1e4) return `${sign}₹${(a / 1e3).toFixed(1)}k`;
-    return `${sign}₹${nf(0).format(a)}`;
+    const sign = v < 0 ? '-' : '';
+    return `${sign}₹${nf(2).format(Math.abs(v))}`;
   }
   function fmtValue(v, unit) {
     if (v === null || v === undefined || isNaN(v)) return 'n/a';
@@ -49,7 +46,12 @@
   }
   function fmtTick(v, unit) {
     const num = Number(v);
-    if (unit === 'inr') return fmtINR(num, true);
+    if (unit === 'inr') {
+      const a = Math.abs(num);
+      if (a >= 1e6) return `₹${(num / 1e6).toFixed(2)}M`;
+      if (a >= 1e4) return `₹${(num / 1e3).toFixed(0)}k`;
+      return `₹${nf(0).format(num)}`;
+    }
     if (unit === 'pct') return `${num.toFixed(0)}%`;
     const abs = Math.abs(num);
     if (abs >= 1e7) return `${(num / 1e7).toFixed(1)}Cr`;
