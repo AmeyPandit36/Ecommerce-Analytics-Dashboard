@@ -60,10 +60,21 @@ DIMENSIONS: dict[str, tuple[str, str]] = {
         "CASE WHEN discount_percent = 0 THEN 'No discount' "
         "ELSE (discount_percent / 5) * 5 || '%-' || ((discount_percent / 5) * 5 + 4) || '%' END",
     ),
+    # Analysis-aligned discount buckets (values in the dataset are 0,5,10,15,20,25,30)
+    "discount_bucket": (
+        "CASE WHEN discount_percent = 0 THEN 0 WHEN discount_percent <= 10 THEN 1 "
+        "WHEN discount_percent <= 20 THEN 2 ELSE 3 END",
+        "CASE WHEN discount_percent = 0 THEN '0% (no discount)' "
+        "WHEN discount_percent <= 10 THEN '5\u201310%' "
+        "WHEN discount_percent <= 20 THEN '11\u201320%' ELSE '21\u201330%' END",
+    ),
+    # ₹500 price bands, aligned with the analysis ("₹501–₹1,500 = 63.6% of revenue")
     "price_band": (
-        "(CAST(unit_price / 250 AS INT)) * 250",
-        "CAST(CAST(unit_price / 250 AS INT) * 250 AS TEXT) || '-' || "
-        "CAST(CAST(unit_price / 250 AS INT) * 250 + 249 AS TEXT)",
+        "CASE WHEN unit_price <= 500 THEN 0 WHEN unit_price <= 1000 THEN 1 "
+        "WHEN unit_price <= 1500 THEN 2 ELSE 3 END",
+        "CASE WHEN unit_price <= 500 THEN '\u2264 \u20b9500' "
+        "WHEN unit_price <= 1000 THEN '\u20b9501\u20131,000' "
+        "WHEN unit_price <= 1500 THEN '\u20b91,001\u20131,500' ELSE '\u20b91,501\u20132,000' END",
     ),
     "time_band": (
         "(CAST(time_on_site_sec / 300 AS INT)) * 300",
@@ -78,7 +89,7 @@ DIMENSIONS: dict[str, tuple[str, str]] = {
 
 # dimensions whose natural order is numeric/temporal, not "biggest first"
 ORDER_BY_KEY = {"month", "weekday", "season", "rating", "date", "discount_band",
-                "price_band", "time_band", "pages_band", "duration"}
+                "discount_bucket", "price_band", "time_band", "pages_band", "duration"}
 
 PALETTE = ["cyan", "violet", "blue", "teal", "emerald", "amber", "slate", "rose", "orange"]
 
@@ -133,10 +144,14 @@ def fmt(value, kind: str) -> str:
         return "n/a"
     if kind == "inr":
         return F.inr_short(value)
+    if kind == "inr_m":
+        return F.inr_m(value)
     if kind == "count":
         return F.number(value)
     if kind == "pct":
         return F.pct(value)
+    if kind == "pct2":
+        return F.pct(value, 2)
     if kind == "num1":
         return F.number(value, 1, style="west")
     if kind == "num2":
@@ -170,8 +185,13 @@ def kpis(pairs, data: dict) -> list[dict]:
 
 
 def chart(chart_id, title, type_, labels, series, *, subtitle="", span=6, unit="num",
-          height=260, legend=None, note="", stacked=False, horizontal=False, max_ticks=None):
-    """Chart spec consumed by the Chart.js renderer in static/app.js."""
+          height=260, legend=None, note="", stacked=False, horizontal=False, max_ticks=None,
+          callout=None):
+    """Chart spec consumed by the Chart.js renderer in static/app.js.
+
+    `callout` is an optional analytical annotation rendered beside the chart:
+    {"text": "Highest conversion", "tone": "accent" | "warn" | "positive"}.
+    """
     normalised = []
     for i, raw in enumerate(series):
         item = dict(raw)
@@ -188,7 +208,7 @@ def chart(chart_id, title, type_, labels, series, *, subtitle="", span=6, unit="
             "unit": unit, "height": height, "note": note, "stacked": stacked,
             "horizontal": horizontal or type_ == "hbar",
             "legend": (len(normalised) > 1) if legend is None else legend,
-            "maxTicks": max_ticks}
+            "maxTicks": max_ticks, "callout": callout}
 
 
 def table(title, columns, rows, *, subtitle="", span=6, note="", kind="plain", empty="No rows match the current filters."):

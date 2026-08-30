@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""End-to-end verification for the dashboard.
+"""End-to-end verification for the BI report.
 
     python scripts/smoke_test.py                  # against the in-process app
     python scripts/smoke_test.py http://127.0.0.1:5050   # against a running server
 
 Checks, in order:
-  1. every route returns 200 and renders
+  1. every report page returns 200 and renders
   2. static assets resolve (CSS / JS / Chart.js)
   3. the embedded chart payload is valid JSON and every canvas has a spec
-  4. filter parameters actually change the numbers
+  4. slicer parameters actually change the numbers
   5. headline KPIs recomputed straight from data/Ecommerce.csv match the API
-     (i.e. the dashboard is compared against the raw dataset, not against itself)
-  6. the AI analyst answers every example question without errors
+  6. the verified headline figures from the analysis are reproduced exactly
 """
 from __future__ import annotations
 
@@ -26,24 +25,14 @@ import urllib.request
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV_PATH = os.path.join(BASE_DIR, "data", "Ecommerce.csv")
 
-PAGES = ["/", "/dashboard", "/sales", "/customers", "/journey", "/funnel", "/data-quality",
-         "/ai-analyst", "/healthz", "/api/summary", "/api/export", "/api/products",
+PAGES = ["/", "/overview", "/customers", "/conversion", "/categories",
+         "/healthz", "/api/summary", "/api/export",
          "/static/app.css", "/static/app.js", "/static/vendor/chart.umd.min.js"]
-FILTERED = ["/dashboard", "/sales", "/customers", "/journey", "/api/summary", "/api/products"]
+REPORT_PAGES = ["/overview", "/customers", "/conversion", "/categories"]
 QUERIES = ["?cat=2", "?pay=1", "?dev=0", "?utype=1", "?chan=4", "?loc=46", "?bucket=Long",
            "?purch=1", "?purch=0", "?month=11", "?rmin=4", "?dmin=15", "?dmax=0",
            "?from=2024-03-01", "?to=15-06-2024", "?cat=2&pay=1&month=6", "?cat=99",
            "?loc=not-a-real-value", "?month=0"]
-ANALYST_QUESTIONS = [
-    "Which category performs best?", "What are the top 5 products?",
-    "Which payment method is most popular?", "Which customers are most valuable?",
-    "What interesting patterns exist in the dataset?", "Is discount associated with purchasing?",
-    "Where do sessions drop off in the funnel?", "Which device converts best?",
-    "What is the average order value?", "How do ratings vary by category?",
-    "Which month was the strongest?", "Is there a weekend effect?",
-    "Which locations spend the most?", "What does the data quality look like?",
-    "who is the CEO", "",
-]
 
 
 class Client:
@@ -64,16 +53,6 @@ class Client:
         with urllib.request.urlopen(self.base_url + path, timeout=30) as resp:
             return resp.status, resp.read()
 
-    def post_json(self, path: str, payload: dict):
-        if self.app is not None:
-            response = self.app.post(path, json=payload)
-            return response.status_code, response.get_json()
-        request = urllib.request.Request(
-            self.base_url + path, data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=30) as resp:
-            return resp.status, json.loads(resp.read().decode())
-
 
 def csv_totals(query: str) -> dict:
     """Recompute headline metrics from the raw CSV, independently of the app."""
@@ -82,10 +61,12 @@ def csv_totals(query: str) -> dict:
 
     def iso_bound(raw: str) -> str:
         day, month, year = (raw.split("-") + ["", "", ""])[:3]
-        if len(day) == 4:                       # already yyyy-mm-dd
+        if len(day) == 4:
             return raw
         return f"{year}-{int(month):02d}-{int(day):02d}"
+
     sessions = revenue = purchases = 0
+    customers = set()
     with open(CSV_PATH, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             if "cat" in wanted and row["product_category"] != wanted["cat"]:
@@ -120,10 +101,12 @@ def csv_totals(query: str) -> dict:
                 if "to" in wanted and iso > iso_bound(wanted["to"]):
                     continue
             sessions += 1
+            customers.add(row["customer_id"])
             purchased = int(row["purchased"])
             purchases += purchased
             revenue += float(row["revenue"])
-    return {"sessions": sessions, "purchases": purchases, "revenue": round(revenue, 2)}
+    return {"sessions": sessions, "purchases": purchases, "revenue": round(revenue, 2),
+            "customers": len(customers)}
 
 
 def main(base_url: str | None = None) -> int:
@@ -143,9 +126,9 @@ def main(base_url: str | None = None) -> int:
         status, body = client.get(path)
         check(f"GET {path}", status in (200, 302), f"→ HTTP {status}")
         text = body.decode("utf-8", "replace")
-        if "text/html" in str(body[:200]) or path in ("/dashboard", "/sales", "/customers", "/journey",
-                                                       "/data-quality", "/ai-analyst"):
-            check(f"render {path}", "Ecommerce" in text or "Analytics" in text, "missing app shell")
+        if path in REPORT_PAGES:
+            check(f"render {path}", "Customer Behavior" in text or "Analysis" in text,
+                  "missing app shell")
             check(f"no traceback in {path}", "Traceback" not in text and "hit an error" not in text)
 
     print("2/6 static asset sizes")
@@ -156,7 +139,7 @@ def main(base_url: str | None = None) -> int:
 
     print("3/6 chart payloads")
     charts_total = 0
-    for path in ["/dashboard", "/sales", "/customers", "/journey", "/data-quality"]:
+    for path in REPORT_PAGES:
         status, body = client.get(path)
         text = body.decode("utf-8", "replace")
         match = re.search(r'<script id="page-data" type="application/json">(.*?)</script>', text, re.S)
@@ -180,24 +163,25 @@ def main(base_url: str | None = None) -> int:
               all(f'id="i-{name}"' in text for name in
                   set(re.findall(r'<use href="#i-([a-z0-9-]+)"', text))))
 
-    print("4/6 filters change the numbers")
-    baseline = client.get("/api/summary")[1]
-    base_totals = json.loads(baseline.decode()) if isinstance(baseline, bytes) else baseline
+    print("4/6 slicers change the numbers")
+    baseline = json.loads(client.get("/api/summary")[1].decode())
     for query in QUERIES:
         status, body = client.get("/api/summary" + query)
         check(f"GET /api/summary{query}", status == 200, f"→ HTTP {status}")
         data = json.loads(body.decode())
         check(f"filtered{query} differs from baseline",
-              data.get("totals") != base_totals.get("totals") or query in ("?cat=99", "?loc=not-a-real-value", "?month=0"),
+              data.get("totals") != baseline.get("totals")
+              or query in ("?cat=99", "?loc=not-a-real-value", "?month=0"),
               "identical totals → filter ignored")
         if query == "?cat=2":
             check("cat=2 revenue < total revenue",
-                  (data.get("totals") or {}).get("revenue", 0) < (base_totals.get("totals") or {}).get("revenue", 0))
+                  (data.get("totals") or {}).get("revenue", 0) < (baseline.get("totals") or {}).get("revenue", 0))
             check("cat=99 is empty",
                   json.loads(client.get("/api/summary?cat=99")[1].decode())["totals"]["sessions"] == 0)
 
     print("5/6 KPIs match a recomputation from the raw CSV")
-    for query in ["", "?cat=2", "?pay=1", "?purch=0", "?month=11", "?bucket=Long", "?from=2024-03-01&to=31-03-2024"]:
+    for query in ["", "?cat=2", "?pay=1", "?purch=0", "?month=11", "?bucket=Long",
+                  "?from=2024-03-01&to=31-03-2024"]:
         status, body = client.get("/api/summary" + query)
         got = json.loads(body.decode())["totals"]
         expected = csv_totals(query)
@@ -207,14 +191,18 @@ def main(base_url: str | None = None) -> int:
               f"{got['purchases']} vs {expected['purchases']}")
         check(f"revenue{query or ' (all)'}", abs(got["revenue"] - expected["revenue"]) < 1,
               f"₹{got['revenue']:,.2f} vs ₹{expected['revenue']:,.2f}")
+        check(f"customers{query or ' (all)'}", got["customers"] == expected["customers"],
+              f"{got['customers']} vs {expected['customers']}")
 
-    print("6/6 analyst")
-    for question in ANALYST_QUESTIONS:
-        status, data = client.post_json("/api/ask?cat=2", {"question": question})
-        check(f"ask {question[:34]!r}", status == 200 and bool(data.get("answer")),
-              f"→ HTTP {status}")
-        joined = json.dumps(data)
-        check(f"ask {question[:24]!r} no leak", "Traceback" not in joined and "NoneType" not in joined)
+    print("6/6 verified headline figures from the analysis")
+    totals = baseline["totals"]
+    check("sessions = 25,000", totals["sessions"] == 25000, f"{totals['sessions']}")
+    check("customers = 8,442", totals["customers"] == 8442, f"{totals['customers']}")
+    check("conversion ≈ 22.46%", abs(totals["conversion"] - 22.464) < 0.01, f"{totals['conversion']}")
+    check("AOV ≈ ₹1,801", abs(totals["aov"] - 1801.31) < 1, f"{totals['aov']}")
+    check("abandonment ≈ 65.15%", abs(totals["abandon_rate"] - 65.1548) < 0.01,
+          f"{totals['abandon_rate']}")
+    check("revenue ≈ ₹10.12M", abs(totals["revenue"] - 10116169.06) < 1, f"{totals['revenue']}")
 
     print()
     print(f"{checks} checks, {len(failures)} failures")

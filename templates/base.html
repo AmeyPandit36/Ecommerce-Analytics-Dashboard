@@ -3,80 +3,73 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}{{ page_title }}{% endblock %} · Ecommerce Analytics</title>
-<meta name="description" content="Analytics dashboard over the Indian E-Commerce Customer Behavior & Purchase dataset (Kaggle): revenue, categories, customers, funnel and AI insights.">
-<meta name="theme-color" content="#070a12">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2322d3ee'/%3E%3Cpath d='M6 17V9m6 8V5m6 12v-5' stroke='%23071019' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>{% block title %}{{ page_title }}{% endblock %} · E-Commerce Analysis</title>
+<meta name="description" content="Interactive analysis of customer behavior, conversion, revenue concentration, category performance and purchase patterns over the Indian E-Commerce Customer Behavior & Purchase dataset.">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%232563eb'/%3E%3Cpath d='M6 17V9m6 8V5m6 12v-5' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 {% block head %}{% endblock %}
 </head>
 <body>
 {% include "_icons.html" %}
-<div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="{{ url_for('dashboard') }}">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="{{ url_for('overview') }}">
       <span class="brand-mark"><svg class="i"><use href="#i-chart"></use></svg></span>
-      <span>
-        <span class="brand-name">Ecommerce&nbsp;Analytics</span>
-        <span class="brand-sub">Indian&nbsp;Market&nbsp;·&nbsp;2024</span>
+      <span class="brand-text">
+        <span class="brand-name">DataArena <em>Analytics</em></span>
+        <span class="brand-sub">BI Report · 2024</span>
       </span>
     </a>
 
-    <div class="nav-label">Workspace</div>
-    <nav class="nav">
+    <nav class="nav" aria-label="Report pages">
       {% for endpoint, label, icon, blurb in nav %}
       <a href="{{ url_for(endpoint) }}" class="{% if request.endpoint == endpoint %}active{% endif %}" title="{{ blurb }}">
         <svg class="i"><use href="#i-{{ icon }}"></use></svg>{{ label }}
       </a>
       {% endfor %}
     </nav>
-    <p class="nav-note">Every figure is a live SQL aggregate over the bundled dataset — no mock data.</p>
 
-    <div class="side-card">
-      <div class="t">Dataset</div>
-      <div class="n">{{ dataset_name }}</div>
-      <div class="s">{{ df_status }}</div>
+    <div class="topbar-right">
       {% if store %}
-      <div class="s">sha256 {{ store.meta.get('csv_sha256', '')[:10] }}…</div>
+        <span class="pill"><span class="dot"></span>{{ num(store.meta.get('rows')) }} sessions</span>
+        {% if active_filters %}<span class="pill pill-active">{{ active_filters | length }} filter{{ 's' if active_filters | length != 1 }}</span>{% endif %}
+        <a class="btn" data-export href="{{ url_for('api_export') }}{% if request.query_string %}?{{ request.query_string.decode() }}{% endif %}">
+          <svg class="i"><use href="#i-download"></use></svg>Export
+        </a>
+      {% else %}
+        <span class="pill pill-warn"><span class="dot"></span>dataset not loaded</span>
       {% endif %}
     </div>
-  </aside>
+  </div>
+</header>
 
-  <div class="main">
-    <header class="topbar">
-      <div>
-        <h1>{% block page_title %}{{ page_title }}{% endblock %}</h1>
-        <div class="sub">{% block page_subtitle %}{{ page_subtitle }}{% endblock %}</div>
-      </div>
-      <div class="topbar-actions">
-        {% if store %}
-          <span class="pill ok"><span class="dot"></span>{{ num(store.meta.get('rows')) }} sessions</span>
-          {% if active_filters %}<span class="pill">{{ active_filters | length }} filter{{ 's' if active_filters | length != 1 }}</span>{% endif %}
-          <a class="btn ghost" data-export href="{{ url_for('api_export') }}{% if request.query_string %}?{{ request.query_string.decode() }}{% endif %}">
-            <svg class="i"><use href="#i-download"></use></svg>JSON report
-          </a>
-        {% else %}
-          <span class="pill warn"><span class="dot"></span>dataset not loaded</span>
-        {% endif %}
-      </div>
-    </header>
-
-    {% block filterbar %}
-      {% if df_loaded and not hide_filters %}{% include "_filters.html" %}{% endif %}
-    {% endblock %}
-
-    <main class="content" id="content">
-      {% block content %}{% endblock %}
-    </main>
-
-    <footer class="foot">
-      <span>{{ dataset_name }} · <code>{{ store.meta.get('source_csv', 'data/Ecommerce.csv') if store else 'not bundled' }}</code></span>
-      <span class="mono">{{ df_status }}</span>
-      {% if elapsed_ms %}<span class="mono">computed in {{ elapsed_ms }} ms</span>{% endif %}
-      <span style="margin-left:auto" class="mono">v{{ version }}</span>
-    </footer>
+<div class="report-head">
+  <div class="report-head-inner">
+    <div>
+      <h1>{% block page_title %}{{ page_title }}{% endblock %}</h1>
+      <p class="lede">{% block page_subtitle %}{{ page_subtitle }}{% endblock %}</p>
+    </div>
   </div>
 </div>
+
+{% block filterbar %}
+  {% if df_loaded and not hide_filters %}{% include "_filters.html" %}{% endif %}
+{% endblock %}
+
+<main class="content" id="content">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="foot">
+  <div class="foot-inner">
+    <span>{{ dataset_name }} · <code>{{ store.meta.get('source_csv', 'data/Ecommerce.csv') if store else 'not bundled' }}</code></span>
+    <span class="mono">{{ df_status }}</span>
+    {% if elapsed_ms %}<span class="mono">computed in {{ elapsed_ms }} ms</span>{% endif %}
+    <span class="mono foot-right">v{{ version }}</span>
+  </div>
+</footer>
 
 {% if payload %}<script id="page-data" type="application/json">{{ payload | tojson }}</script>{% endif %}
 <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>

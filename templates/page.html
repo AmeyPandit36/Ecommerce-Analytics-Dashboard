@@ -1,93 +1,31 @@
 {% extends "base.html" %}
-{% from "_macros.html" import kpi_grid, charts, tables, insights, funnel, methodology, quality, icon with context %}
+{% from "_macros.html" import kpi_grid, charts, tables, funnel, heading, callouts, tell, note, icon with context %}
 
 {% block content %}
   {% for section in sections %}
     {% if section.kind == 'kpis' and section['items'] %}
       {{ kpi_grid(section['items']) }}
 
-    {% elif section.kind == 'insights' and section['items'] %}
-      <section class="card span-12">
-        <div class="card-head">
-          <div>
-            <div class="t">Automatic insights</div>
-            <div class="s">Recomputed for the current filter range — {{ section['items'] | length }} of
-              {{ meta.get('insight_count', section['items'] | length) }} checks shown</div>
-          </div>
-          <div class="aside"><span class="pill ok"><span class="dot"></span>from SQL</span></div>
-        </div>
-        <div class="card-body tight">{{ insights(section['items']) }}</div>
-      </section>
+    {% elif section.kind == 'heading' %}
+      {{ heading(section) }}
 
     {% elif section.kind == 'charts' and section['items'] %}
       {{ charts(section['items']) }}
 
-    {% elif section.kind == 'tables' and section['items'] %}
-      {{ tables(section['items']) }}
-
     {% elif section.kind == 'funnel' %}
       {{ funnel(section.steps, section.dropoffs) }}
 
+    {% elif section.kind == 'callouts' and section['items'] %}
+      {{ callouts(section['items']) }}
+
+    {% elif section.kind == 'tell' and section['items'] %}
+      {{ tell(section['items']) }}
+
+    {% elif section.kind == 'tables' and section['items'] %}
+      {{ tables(section['items']) }}
+
     {% elif section.kind == 'note' %}
-      <div class="note {% if section.tone %}{{ section.tone }}{% endif %}">
-        <svg class="i"><use href="#i-{{ section.icon or 'info' }}"></use></svg>
-        <div>
-          <div class="t">{{ section.title }}</div>
-          {% if section.text %}<p>{{ section.text }}</p>{% endif %}
-          <p><a class="btn ghost" style="margin-top:8px" href="{{ request.path }}">
-            <svg class="i"><use href="#i-refresh"></use></svg>Reset filters</a></p>
-        </div>
-      </div>
-
-    {% elif section.kind == 'methodology' %}
-      {{ methodology(section['data']) }}
-
-    {% elif section.kind == 'quality' %}
-      {{ quality(section['data']) }}
-
-    {% elif section.kind == 'product_table' %}
-      <section class="card span-12" data-product-table>
-        <div class="card-head">
-          <div>
-            <div class="t">Product table</div>
-            <div class="s">Search, sort and paginate the whole catalogue — every click re-runs the
-              aggregation in SQL, so numbers always match the active filters</div>
-          </div>
-          {% if section.highlights and section.highlights.ranked_products %}
-          <div class="aside">
-            <span class="pill">{{ num(section.highlights.ranked_products) }} products purchased</span>
-            {% if section.highlights.top50_share is not none %}
-            <span class="pill">top 50 → {{ pct(section.highlights.top50_share) }} of revenue</span>
-            {% endif %}
-          </div>
-          {% endif %}
-        </div>
-        <div class="table-tools" data-tools>
-          <div class="search">
-            <svg class="i"><use href="#i-search"></use></svg>
-            <input type="search" data-search placeholder="Search product # or category…"
-                   aria-label="Search products" autocomplete="off">
-          </div>
-          <span class="count" data-count></span>
-          <span class="spacer"></span>
-          <button class="btn ghost" type="button" data-clear-search>Clear search</button>
-          <label class="count">Rows
-            <select data-per aria-label="Rows per page">
-              {% for size in [8, 12, 25, 50] %}
-              <option value="{{ size }}">{{ size }}</option>
-              {% endfor %}
-            </select>
-          </label>
-        </div>
-        <div class="table-wrap">
-          <table class="data"><thead></thead><tbody></tbody></table>
-        </div>
-        <div class="table-tools" style="border-top: 1px solid var(--line); border-bottom: none;">
-          <span class="count">Server-side pagination · sorted by revenue descending by default</span>
-          <span class="spacer"></span>
-          <div class="pager" data-pager></div>
-        </div>
-      </section>
+      {{ note(section) }}
     {% endif %}
   {% endfor %}
 {% endblock %}

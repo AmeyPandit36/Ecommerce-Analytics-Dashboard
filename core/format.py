@@ -60,6 +60,17 @@ def inr(value, digits: int = 0) -> str:
     return "₹" + number(value, digits)
 
 
+def inr_m(value) -> str:
+    """Compact Western million: ₹10.12M. Used for headline revenue KPIs."""
+    if value is None:
+        return "n/a"
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    return f"₹{value / 1e6:.2f}M"
+
+
 def inr_short(value) -> str:
     """Compact Indian currency: ₹1.01 Cr, ₹12.4 L, ₹8,432."""
     if value is None:
