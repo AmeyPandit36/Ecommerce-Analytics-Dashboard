@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ page_title }} · Ecommerce Analytics{% endblock %}
+{% block title %}{{ page_title }} · E-Commerce Analysis{% endblock %}
 
 {% block content %}
 <div class="offline">
@@ -11,9 +11,9 @@
     <p style="margin-top:14px"><code>{{ meta.error }}</code></p>
     {% endif %}
     {% if meta.get('missing') %}
-    <p style="margin-top:14px">Available routes:
+    <p style="margin-top:14px">Available pages:
       {% for endpoint, label, icon, blurb in nav %}
-        <a class="btn ghost" style="margin:3px" href="{{ url_for(endpoint) }}">{{ label }}</a>
+        <a class="btn" style="margin:3px" href="{{ url_for(endpoint) }}">{{ label }}</a>
       {% endfor %}
     </p>
     {% endif %}
@@ -31,14 +31,8 @@
         <code>python scripts/build_dataset.py</code>
       </div>
       <div class="step-card">
-        <b>3 · Run the dashboard</b>
-        <code>python app.py</code> → <a href="/dashboard"><b>/dashboard</b></a>
-      </div>
-      <div class="step-card">
-        <b>Optional · refresh from Kaggle</b>
-        <p>Only needed to re-download the CSV (requires <code>pip install kagglehub</code> and Kaggle
-          credentials). The deployed app never calls Kaggle.</p>
-        <code>python scripts/download_dataset.py</code>
+        <b>3 · Run the report</b>
+        <code>python app.py</code> → <a href="/overview"><b>/overview</b></a>
       </div>
     </div>
 

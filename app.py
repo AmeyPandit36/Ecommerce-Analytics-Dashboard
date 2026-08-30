@@ -1,11 +1,18 @@
-"""Ecommerce Analytics Dashboard — Flask application.
+"""E-Commerce Customer Behavior & Purchase Analysis — Flask application.
 
-Serves a premium analytics UI over the bundled Kaggle dataset
-(data/Ecommerce.csv -> data/ecommerce.db, built by scripts/build_dataset.py).
-Every KPI, chart and table on every page is a live SQL aggregate over the real
-dataset rows and respects the global filter bar.
+A professional, Power BI-style interactive analytics report over the bundled
+Kaggle dataset (data/Ecommerce.csv -> data/ecommerce.db, built by
+scripts/build_dataset.py). Every KPI, chart, callout and finding on every page is
+a live SQL aggregate over the real dataset rows and respects the global slicers.
 
-Local:   python app.py          → http://localhost:5050
+Four report pages (no product/SKU rankings — product_id is not a stable SKU):
+
+    /overview     Executive overview
+    /customers    Customer behavior & value
+    /conversion   Conversion & purchase behavior
+    /categories   Category & price performance
+
+Local:   python app.py          -> http://localhost:5050
 Vercel:  api/index.py re-exports `app` (see DEPLOYMENT.md)
 """
 from __future__ import annotations
@@ -17,26 +24,43 @@ import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, url_for
 
-from analytics import ai_analyst as analyst
-from analytics import customers, funnel, insights, products, quality, sales
+from analytics import report
 from core import format as F
 from core import filters as FL
 from data.loader import load_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VERSION = "2.0.0"
+VERSION = "3.0.0"
 
 STORE, STATUS = load_store()
 
 # (endpoint, label, icon, blurb)
 NAV = (
-    ("dashboard", "Overview", "grid", "KPIs, trends and auto-generated insights"),
-    ("sales", "Sales & Products", "chart", "Revenue, categories, discounts, rankings"),
-    ("customers", "Customers", "users", "Value segmentation, behaviour, spend"),
-    ("journey", "Customer Journey", "filter", "Sessions → cart → purchase"),
-    ("analyst", "AI Analyst", "sparkles", "Ask the data a question"),
-    ("quality", "Data Quality", "shield", "Completeness, duplicates, outliers"),
+    ("overview", "Overview", "grid", "Executive summary — KPIs, findings and funnel"),
+    ("customers", "Customers", "users", "Segmentation, value and who drives revenue"),
+    ("conversion", "Conversion", "filter", "Funnel, session behaviour and discounts"),
+    ("categories", "Category & Price", "tags", "Category, price band and payment performance"),
 )
+
+PAGE_META = {
+    "overview": {
+        "title": "E-Commerce Customer Behavior & Purchase Analysis",
+        "subtitle": "An interactive analysis of customer behavior, conversion, revenue "
+                    "concentration, category performance, and purchase patterns.",
+    },
+    "customers": {
+        "title": "Customer Behavior & Value",
+        "subtitle": "Who is driving revenue? Segmentation, repeat behaviour and value concentration.",
+    },
+    "conversion": {
+        "title": "Conversion & Purchase Behavior",
+        "subtitle": "Where are sessions being lost? Funnel leakage, session behaviour and discounts.",
+    },
+    "categories": {
+        "title": "Category & Price Performance",
+        "subtitle": "Where does revenue come from — and does revenue mean demand?",
+    },
+}
 
 
 def _sanitise(value):
@@ -74,11 +98,12 @@ def create_app() -> Flask:
         meta = STORE.meta if STORE else {}
         return {
             "nav": NAV,
+            "page_meta": PAGE_META,
             "store": STORE,
             "df_loaded": STORE is not None,
             "df_status": STATUS,
             "version": VERSION,
-            "dataset_name": "Indian E-Commerce Customer Behavior & Purchase",
+            "dataset_name": "E-Commerce Customer Behavior & Purchase Analysis",
             "dataset_slug": meta.get("dataset_slug")
                             or "kundanbedmutha/indian-e-commerce-customer-behavior-and-purchase",
             "dataset_rows": meta.get("rows"),
@@ -105,7 +130,6 @@ def create_app() -> Flask:
 
     # ------------------------------------------------------------------- helpers
     def empty_state(reason: str | None = None) -> list:
-        """Shown when a filter combination leaves nothing to aggregate."""
         return [{"kind": "note", "tone": "warn", "icon": "eye",
                  "title": "No rows match these filters",
                  "text": (reason or "The aggregation returned an empty set.")
@@ -113,41 +137,38 @@ def create_app() -> Flask:
                            "2024-01-01 to 2024-12-30, so reset a filter to get data back."}]
 
     def filter_state():
-        """(where clause, bound params, active chips) for the global filter bar."""
         if STORE is None:
             return "", (), []
         where, params, active = FL.build_where(request.args.to_dict(), STORE)
         keep = FL.keep_filter_args(request.args.to_dict())
-        for item in active:  # chip -> link that removes only this filter
+        for item in active:
             item["remove_url"] = "?" + FL.query_string({**keep, item["key"]: ""})
         return where, params, active
 
-    def page(title, subtitle, sections, *, meta=None, status_code=200, elapsed=0.0):
+    def page(key, data, status_code=200, elapsed=0.0):
         _where, _params, active = filter_state()
+        sections = (data or {}).get("sections", [])
         charts = {}
-        table_state = None
         for section in sections:
             if section.get("kind") == "charts":
                 for chart in section.get("items", []):
                     charts[chart["id"]] = chart
-            elif section.get("kind") == "product_table":
-                table_state = section.get("table")
         payload = {
             "charts": charts,
-            "productTable": table_state,
             "filters": FL.keep_filter_args(request.args.to_dict()),
-            "routes": {"products": url_for("api_products")},
+            "routes": {},
         }
         context = {
-            "page_title": title,
-            "page_subtitle": subtitle,
+            "page_key": key,
+            "page_title": PAGE_META[key]["title"],
+            "page_subtitle": PAGE_META[key]["subtitle"],
             "sections": sections,
             "filters": payload["filters"],
             "active_filters": active,
             "filter_options": (FL.options(STORE) if STORE is not None else {}),
             "filter_specs": FL.ui_specs(),
-            "hide_filters": bool((meta or {}).get("no_filters")),
-            "meta": meta or {},
+            "hide_filters": False,
+            "meta": {"totals": (data or {}).get("totals", {})},
             "payload": payload,
             "elapsed_ms": round(elapsed * 1000, 1),
         }
@@ -155,10 +176,31 @@ def create_app() -> Flask:
             return render_template("offline.html", **context), status_code
         return render_template("page.html", **context), status_code
 
+    def render_report_page(key):
+        if STORE is None:
+            return page(key, None)
+        started = time.perf_counter()
+        where, params, _ = filter_state()
+        try:
+            data = report.PAGES[key](STORE, where, params)
+        except Exception as exc:  # pragma: no cover
+            app.logger.exception("%s failed", key)
+            return render_template("offline.html", page_title=PAGE_META[key]["title"],
+                                   page_subtitle="This view hit an error instead of data",
+                                   sections=[], filters={}, active_filters=[], filter_options={},
+                                   hide_filters=True, payload={"charts": {}},
+                                   page_meta=PAGE_META, nav=NAV, store=STORE,
+                                   df_loaded=STORE is not None, df_status=STATUS,
+                                   page_key=key, meta={"error": f"{type(exc).__name__}: {exc}"},
+                                   elapsed_ms=0.0), 500
+        if not data.get("ready"):
+            data["sections"] = empty_state(data.get("reason"))
+        return page(key, data, elapsed=time.perf_counter() - started)
+
     # ----------------------------------------------------------------------- web
     @app.route("/")
     def root():
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("overview"))
 
     @app.route("/healthz")
     def healthz():
@@ -166,208 +208,43 @@ def create_app() -> Flask:
         return jsonify({"ok": STORE is not None, "rows": rows, "status": STATUS,
                         "version": VERSION})
 
-    @app.route("/dashboard", endpoint="dashboard")
-    def dashboard_page():
-        if STORE is None:
-            return page("Overview", "Executive dashboard", [])
-        started = time.perf_counter()
-        where, params, _ = filter_state()
-        try:
-            data = sales.compute(STORE, where, params)
-            if not data.get("ready"):
-                return page("Overview", "Executive dashboard", empty_state(data.get("reason")),
-                            elapsed=time.perf_counter() - started)
-            ins = insights.compute(STORE, where, params)
-            charts = data["charts"]
-            sections = [
-                {"kind": "kpis", "items": data["kpis"]},
-                {"kind": "insights", "items": ins["insights"]},
-                {"kind": "charts", "items": charts[0:1]},
-                {"kind": "charts", "items": charts[1:3]},
-                {"kind": "charts", "items": [charts[5], charts[3]]},
-                {"kind": "tables", "items": data["tables"][0:1]},
-            ]
-            return page("Overview", "Executive dashboard — KPIs, trends and auto-generated insights",
-                        sections, meta={"totals": data["totals"], "granularity": data["trend_granularity"],
-                                        "insight_count": ins["all_insights"]},
-                        elapsed=time.perf_counter() - started)
-        except Exception as exc:  # pragma: no cover
-            return _error_page(exc, "Overview")
-
-    @app.route("/sales", endpoint="sales")
-    def sales_page():
-        if STORE is None:
-            return page("Sales & Products", "Revenue, categories, discounts and products", [])
-        started = time.perf_counter()
-        where, params, _ = filter_state()
-        try:
-            data = sales.compute(STORE, where, params)
-            if not data.get("ready"):
-                return page("Sales & Products", "Revenue, categories, discounts and products",
-                            empty_state(data.get("reason")), elapsed=time.perf_counter() - started)
-            args = request.args.to_dict()
-            table = products.product_table(
-                STORE, where, params, q=args.get("q", ""), sort=args.get("sort", "revenue"),
-                direction=args.get("dir", "desc"), page=args.get("page", 1),
-                per_page=args.get("per", 12))
-            charts = data["charts"]
-            sections = [
-                {"kind": "kpis", "items": data["kpis"]},
-                {"kind": "charts", "items": charts[0:2]},
-                {"kind": "tables", "items": data["tables"]},
-                {"kind": "charts", "items": charts[2:3] + data["products"]["charts"][0:1]},
-                {"kind": "charts", "items": charts[3:6]},
-                {"kind": "product_table", "table": table, "highlights": data["products"]["highlights"]},
-                {"kind": "charts", "items": charts[6:] + data["products"]["charts"][1:]},
-            ]
-            return page("Sales & Products",
-                        "Revenue, category performance, discounts and product rankings", sections,
-                        meta={"totals": data["totals"], "highlights": data["products"]["highlights"]},
-                        elapsed=time.perf_counter() - started)
-        except Exception as exc:  # pragma: no cover
-            return _error_page(exc, "Sales & Products")
+    @app.route("/overview", endpoint="overview")
+    def overview_page():
+        return render_report_page("overview")
 
     @app.route("/customers", endpoint="customers")
-    def customers_page():
-        if STORE is None:
-            return page("Customers", "Segmentation and behaviour", [])
-        started = time.perf_counter()
-        where, params, _ = filter_state()
-        try:
-            data = customers.compute(STORE, where, params)
-            if not data.get("ready"):
-                return page("Customers", "Segmentation and behaviour", empty_state(data.get("reason")),
-                            elapsed=time.perf_counter() - started)
-            charts = data["charts"]
-            sections = [
-                {"kind": "kpis", "items": data["kpis"]},
-                {"kind": "methodology", "data": data["segment_rule"]},
-                {"kind": "tables", "items": data["tables"][0:1]},
-                {"kind": "charts", "items": charts[0:2]},
-                {"kind": "charts", "items": charts[2:4]},
-                {"kind": "tables", "items": data["tables"][1:]},
-                {"kind": "charts", "items": charts[4:]},
-            ]
-            return page("Customers", "Who buys, how much they spend, and what separates the segments",
-                        sections, meta={"totals": data["totals"]},
-                        elapsed=time.perf_counter() - started)
-        except Exception as exc:  # pragma: no cover
-            return _error_page(exc, "Customers")
+    def customers_route():
+        return render_report_page("customers")
 
-    @app.route("/journey", endpoint="journey")
+    @app.route("/conversion", endpoint="conversion")
+    def conversion_route():
+        return render_report_page("conversion")
+
+    @app.route("/categories", endpoint="categories")
+    def categories_route():
+        return render_report_page("categories")
+
+    # URL aliases for the current pages (kept for bookmarks / external links).
+    @app.route("/dashboard")
+    def alias_dashboard():
+        return redirect(url_for("overview"))
+
+    @app.route("/journey")
     @app.route("/funnel")
-    def journey_page():
-        if STORE is None:
-            return page("Customer Journey", "Funnel and conversion drivers", [])
-        started = time.perf_counter()
-        where, params, _ = filter_state()
-        try:
-            data = funnel.compute(STORE, where, params)
-            if not data.get("ready"):
-                return page("Customer Journey", "Funnel and conversion drivers",
-                            empty_state(data.get("reason")), elapsed=time.perf_counter() - started)
-            charts = data["charts"]
-            sections = [
-                {"kind": "kpis", "items": data["kpis"]},
-                {"kind": "funnel", "steps": data["steps"], "dropoffs": data["dropoffs"]},
-                {"kind": "charts", "items": charts[0:1] + charts[4:5]},
-                {"kind": "charts", "items": charts[1:4]},
-                {"kind": "tables", "items": data["tables"]},
-                {"kind": "charts", "items": charts[5:]},
-            ]
-            return page("Customer Journey", "Sessions → carts → purchases, and what moves conversion",
-                        sections, meta={"totals": data["totals"]}, elapsed=time.perf_counter() - started)
-        except Exception as exc:  # pragma: no cover
-            return _error_page(exc, "Customer Journey")
+    def alias_conversion():
+        return redirect(url_for("conversion"))
 
-    @app.route("/data-quality", endpoint="quality")
-    @app.route("/quality")
-    def quality_page():
-        if STORE is None:
-            return page("Data Quality", "Dataset profile", [])
-        started = time.perf_counter()
-        try:
-            data = quality.compute(STORE)
-            sections = [
-                {"kind": "kpis", "items": data["kpis"]},
-                {"kind": "quality", "data": data},
-                {"kind": "charts", "items": data["charts"]},
-                {"kind": "tables", "items": data["tables"]},
-            ]
-            return page("Data Quality", "Completeness, duplicates, types, outliers and semantics notes",
-                        sections, meta={"score": data["score"], "meta": data["meta"], "no_filters": True},
-                        elapsed=time.perf_counter() - started)
-        except Exception as exc:  # pragma: no cover
-            return _error_page(exc, "Data Quality")
-
-    @app.route("/ai-analyst", endpoint="analyst")
-    def analyst_page():
-        _where, _params, active = filter_state()
-        return render_template(
-            "analyst.html",
-            page_title="AI Analyst",
-            page_subtitle="A deterministic query engine over the dataset — no language model, no invented answers",
-            examples=list(analyst.EXAMPLES),
-            filters=FL.keep_filter_args(request.args.to_dict()),
-            active_filters=active,
-            filter_options=(FL.options(STORE) if STORE is not None else {}),
-            filter_specs=FL.ui_specs(),
-            hide_filters=False,
-            meta={},
-            payload={"charts": {}, "productTable": None,
-                     "filters": FL.keep_filter_args(request.args.to_dict()),
-                     "routes": {"ask": url_for("api_ask"), "products": url_for("api_products")}},
-            elapsed_ms=0.0,
-        )
+    @app.route("/category-price")
+    def alias_categories():
+        return redirect(url_for("categories"))
 
     # --------------------------------------------------------------------- apis
-    @app.route("/api/products", endpoint="api_products")
-    def api_products():
-        if STORE is None:
-            return jsonify({"ready": False, "reason": STATUS}), 503
-        where, params, _ = filter_state()
-        args = request.args.to_dict()
-        data = products.product_table(
-            STORE, where, params,
-            q=args.get("q", ""), sort=args.get("sort", "revenue"),
-            direction=args.get("dir", "desc"), page=args.get("page", 1),
-            per_page=args.get("per", 12))
-        data["ready"] = True
-        data["filters"] = FL.keep_filter_args(args)
-        return jsonify(data)
-
-    @app.route("/api/ask", methods=["POST", "GET"], endpoint="api_ask")
-    def api_ask():
-        payload = request.get_json(silent=True) or {}
-        question = str(payload.get("question") or request.args.get("q") or "")[:400]
-        if request.args.get("ignore_filters") == "1" or payload.get("ignore_filters"):
-            where, params = "", ()
-        else:
-            where, params, _ = filter_state()
-        started = time.perf_counter()
-        try:
-            answer = analyst.answer_question(question, STORE, where, params)
-            answer = analyst.llm_polish(answer)
-        except Exception as exc:  # a bad question must never break the page
-            app.logger.exception("AI analyst failed for %r", question)
-            answer = {"answer": "That question hit an internal error, so nothing was reported.",
-                      "detail": (f"{type(exc).__name__}: {exc}" if app.debug else
-                                 "The query for this intent failed. Try one of the suggested questions "
-                                 "or simplify the wording."), "evidence": None, "chart": None,
-                      "method": "n/a", "limitations": "Nothing was estimated or invented.",
-                      "confidence": "error", "followups": list(analyst.EXAMPLES[:4]),
-                      "question": question}
-        answer["took_ms"] = round((time.perf_counter() - started) * 1000, 1)
-        answer["filters"] = FL.keep_filter_args(request.args.to_dict())
-        answer["examples"] = list(analyst.EXAMPLES)
-        return jsonify(_sanitise(answer))
-
     @app.route("/api/summary")
     def api_summary():
         if STORE is None:
             return jsonify({"ready": False, "reason": STATUS}), 503
         where, params, _ = filter_state()
-        return jsonify({"ready": True, "totals": sales.compute(STORE, where, params)["totals"],
+        return jsonify({"ready": True, "totals": report.overview(STORE, where, params)["totals"],
                         "status": STATUS})
 
     @app.route("/api/export")
@@ -375,9 +252,8 @@ def create_app() -> Flask:
         if STORE is None:
             return jsonify({"ready": False, "reason": STATUS}), 503
         where, params, active = filter_state()
-        sales_data = sales.compute(STORE, where, params)
-        report = {
-            "dataset": "Indian E-Commerce Customer Behavior & Purchase",
+        out = {
+            "dataset": "E-Commerce Customer Behavior & Purchase Analysis",
             "source": {"slug": STORE.meta.get("dataset_slug"), "file": STORE.meta.get("source_csv"),
                        "csv_sha256": STORE.meta.get("csv_sha256"),
                        "csv_bytes": STORE.meta.get("csv_bytes"),
@@ -385,26 +261,14 @@ def create_app() -> Flask:
             "generated_utc": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
             "status": STATUS,
             "filters": {item["key"]: item["raw"] for item in active},
-            "totals": sales_data["totals"],
-            "insights": [{"title": item["title"], "text": item["text"], "metric": item["metric"]}
-                         for item in insights.compute(STORE, where, params)["insights"]],
-            "segments": customers.compute(STORE, where, params)["segments"],
-            "quality": {key: value for key, value in quality.compute(STORE).items()
-                        if key in ("score", "dtype_counts", "findings", "meta")},
+            "totals": report.overview(STORE, where, params)["totals"],
+            "segments": report.segment_data(STORE, where, params)["segments"],
         }
-        body = json.dumps(_sanitise(report), indent=2, default=str)
+        body = json.dumps(_sanitise(out), indent=2, default=str)
         return Response(body, mimetype="application/json",
                         headers={"Content-Disposition": 'attachment; filename="dashboard-report.json"'})
 
     # --------------------------------------------------------------- error paths
-    def _error_page(exc: Exception, title: str):
-        app.logger.exception("%s failed", title)
-        return render_template("offline.html", page_title=title,
-                               page_subtitle="This view hit an error instead of data",
-                               sections=[], filters={}, active_filters=[], filter_options={},
-                               hide_filters=True, payload={"charts": {}, "productTable": None},
-                               meta={"error": f"{type(exc).__name__}: {exc}"}, elapsed_ms=0.0), 500
-
     @app.errorhandler(404)
     def not_found(_exc):
         if request.path.startswith("/api/"):
@@ -412,16 +276,21 @@ def create_app() -> Flask:
         return render_template("offline.html", page_title="Page not found",
                                page_subtitle=f"No route matches <code>{request.path}</code>",
                                sections=[], filters={}, active_filters=[], filter_options={},
-                               hide_filters=True, payload={"charts": {}, "productTable": None},
-                               meta={"missing": request.path}, elapsed_ms=0.0), 404
+                               hide_filters=True, payload={"charts": {}},
+                               page_meta=PAGE_META, nav=NAV, store=STORE,
+                               df_loaded=STORE is not None, df_status=STATUS,
+                               page_key="overview", meta={"missing": request.path},
+                               elapsed_ms=0.0), 404
 
     @app.errorhandler(500)
     def server_error(_exc):  # pragma: no cover
         return render_template("offline.html", page_title="Server error",
                                page_subtitle="Something went wrong while computing this view",
                                sections=[], filters={}, active_filters=[], filter_options={},
-                               hide_filters=True, payload={"charts": {}, "productTable": None},
-                               meta={"error": "Internal server error — see server logs"},
+                               hide_filters=True, payload={"charts": {}},
+                               page_meta=PAGE_META, nav=NAV, store=STORE,
+                               df_loaded=STORE is not None, df_status=STATUS,
+                               page_key="overview", meta={"error": "Internal server error"},
                                elapsed_ms=0.0), 500
 
     return app
@@ -432,5 +301,5 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5050"))
-    print(f"Ecommerce Analytics Dashboard → http://0.0.0.0:{port}  |  {STATUS}")
+    print(f"E-Commerce Customer Behavior & Purchase Analysis → http://0.0.0.0:{port}  |  {STATUS}")
     app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_DEBUG") == "1")

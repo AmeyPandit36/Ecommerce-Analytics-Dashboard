@@ -1,41 +1,37 @@
-{# Global filter bar. Controls are generated from core.filters.SPECS, so the UI
-   and the SQL builder can never drift apart. Every option below is a real value
-   read back from the dataset. #}
-<form class="filterbar" method="get" action="{{ request.path }}" data-filterbar>
-  <div class="f-title">
-    <svg class="i"><use href="#i-filter"></use></svg>
-    <span>Filters</span>
-  </div>
-
-  {% for spec in filter_specs %}
-    {% set value = filters.get(spec.key, '') %}
-    <div class="filter {% if value %}has-value{% endif %}">
-      <label for="f-{{ spec.key }}">{{ spec.label }}</label>
-
-      {% if spec.kind == 'date' %}
-        <input id="f-{{ spec.key }}" name="{{ spec.key }}" type="date" data-filter-key="{{ spec.key }}" value="{{ value }}"
-               min="{{ store.meta.get('date_min', '') }}" max="{{ store.meta.get('date_max', '') }}">
-      {% elif spec.kind == 'int' and spec.key in ('rmin', 'dmin', 'dmax') %}
-        <select id="f-{{ spec.key }}" name="{{ spec.key }}" data-filter-key="{{ spec.key }}">
-          <option value="">Any</option>
-          {% for option in filter_options.get(spec.key, []) %}
-            <option value="{{ option.value }}" {% if value == option.value | string %}selected{% endif %}>{{ option.label }}</option>
-          {% endfor %}
-        </select>
-      {% else %}
-        <select id="f-{{ spec.key }}" name="{{ spec.key }}" data-filter-key="{{ spec.key }}">
-          <option value="">All</option>
-          {% for option in filter_options.get(spec.key, []) %}
-            <option value="{{ option.value }}" {% if value == option.value | string %}selected{% endif %}>
-              {{ option.label }}{% if option.n %} · {{ compact(option.n) }}{% endif %}
-            </option>
-          {% endfor %}
-        </select>
-      {% endif %}
+{# Slicer bar (Power BI-style). Controls are generated from core.filters.SPECS. #}
+<div class="slicers" data-filterbar>
+  <form class="slicer-form" method="get" action="{{ request.path }}">
+    <div class="slicer-head">
+      <svg class="i"><use href="#i-filter"></use></svg>
+      <span>Filters</span>
     </div>
-  {% endfor %}
 
-  <div class="filter-spacer"></div>
+    {% for spec in filter_specs %}
+      {% set value = filters.get(spec.key, '') %}
+      <div class="slicer {% if value %}has-value{% endif %}">
+        <label for="f-{{ spec.key }}">{{ spec.label }}</label>
+        {% if spec.kind == 'date' %}
+          <input id="f-{{ spec.key }}" name="{{ spec.key }}" type="date" data-filter-key="{{ spec.key }}" value="{{ value }}"
+                 min="{{ store.meta.get('date_min', '') }}" max="{{ store.meta.get('date_max', '') }}">
+        {% else %}
+          <select id="f-{{ spec.key }}" name="{{ spec.key }}" data-filter-key="{{ spec.key }}">
+            <option value="">All</option>
+            {% for option in filter_options.get(spec.key, []) %}
+              <option value="{{ option.value }}" {% if value == option.value | string %}selected{% endif %}>
+                {{ option.label }}{% if option.n %} · {{ compact(option.n) }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="slicer-spacer"></div>
+
+    <a class="btn btn-reset" href="{{ request.path }}" data-reset title="Clear every filter">
+      <svg class="i"><use href="#i-refresh"></use></svg>Reset Filters
+    </a>
+  </form>
 
   {% if active_filters %}
   <div class="chips">
@@ -47,8 +43,4 @@
     {% endfor %}
   </div>
   {% endif %}
-
-  <a class="btn ghost" href="{{ request.path }}" data-reset title="Clear every filter">
-    <svg class="i"><use href="#i-refresh"></use></svg>Reset filters
-  </a>
-</form>
+</div>
