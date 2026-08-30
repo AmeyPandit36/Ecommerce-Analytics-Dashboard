@@ -4,6 +4,42 @@ Target platform: **Vercel** (Serverless Function, Python 3.12 runtime). The app 
 WSGI app, so the same code also runs unchanged on Render / Railway / Fly.io / any Docker host with
 `gunicorn`.
 
+## Live status
+
+| | |
+|---|---|
+| Deployed | **No** — as of 2026-08-30 there is no Vercel/Render/Fly/GitHub-Pages deployment for this repo (`gh api .../deployments` → `[]`, no environments, no Pages site, no workflows) |
+| Repo | https://github.com/AmeyPandit36/Ecommerce-Analytics-Dashboard |
+| Ready to ship | Yes — `.github/workflows/deploy.yml`, `vercel.json`, `render.yaml` and `Dockerfile` are all committed; adding one repository secret is the only remaining step |
+
+---
+
+## 0. Fastest path — GitHub Actions (no local network access needed)
+
+`.github/workflows/deploy.yml` runs on every push to `main` and on demand. It first boots the app
+and runs `scripts/smoke_test.py` (231 checks), then deploys to whichever host has a credential
+configured, then re-runs the same 231 checks against the **live** URL.
+
+1. Add **one** of these under *Settings → Secrets and variables → Actions → New repository secret*:
+
+   | Host | Secrets |
+   |---|---|
+   | Vercel (default) | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` |
+   | Render | `RENDER_DEPLOY_HOOK_URL` (Settings → Deploy Hook), plus an optional repo *variable* `RENDER_URL` so the post-deploy smoke test knows where to point |
+   | Fly.io | `FLY_API_TOKEN` (and a `fly.toml` at the repo root) |
+
+2. *Actions → Deploy → Run workflow* (or push to `main`). With no secret configured the workflow
+   still verifies the app and reports that nothing was deployed — it does not fail.
+
+From a machine without egress to the hosting APIs (a locked-down sandbox, for example), trigger the
+same run with the GitHub CLI:
+
+```bash
+gh workflow run deploy.yml --ref main -f target=vercel
+gh run watch            # stream the logs
+```
+
+
 ---
 
 ## 1. Vercel (recommended)

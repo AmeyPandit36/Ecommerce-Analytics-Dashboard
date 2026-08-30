@@ -1,0 +1,13 @@
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.vercel/
+node_modules/
+tests/
+*.log
+tmp/
+.idea/
+.vscode/

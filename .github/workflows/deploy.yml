@@ -1,0 +1,175 @@
+# Deploy the dashboard.
+#
+# Runs on every push to main and on demand (Actions → Deploy → Run workflow).
+# The target is chosen automatically from whichever credential is configured as a
+# repository secret, or explicitly with the "target" input:
+#
+#   VERCEL_TOKEN (+ VERCEL_ORG_ID / VERCEL_PROJECT_ID)  →  Vercel   (see DEPLOYMENT.md §1)
+#   RENDER_DEPLOY_HOOK_URL (+ optional RENDER_URL)      →  Render   (see DEPLOYMENT.md §4)
+#   FLY_API_TOKEN (+ fly.toml at the repo root)         →  Fly.io   (see DEPLOYMENT.md §4)
+#
+# If no credential is present the workflow still runs the verification job and then
+# stops with a clear message instead of failing the build.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy
+        required: true
+        default: auto
+        type: choice
+        options: [auto, vercel, render, fly, none]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify (231 checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install runtime deps
+        run: pip install -r requirements.txt
+      - name: Boot the app and run the smoke test against it
+        run: |
+          python app.py >/tmp/app.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5050/healthz >/dev/null && break
+            sleep 1
+          done
+          python scripts/smoke_test.py http://127.0.0.1:5050
+
+  plan:
+    name: Pick target
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.pick.outputs.target }}
+      note: ${{ steps.pick.outputs.note }}
+    steps:
+      - id: pick
+        env:
+          INPUT_TARGET: ${{ inputs.target }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          target="${INPUT_TARGET:-auto}"
+          if [ "$target" = "auto" ]; then
+            if [ -n "$VERCEL_TOKEN" ];                 then target=vercel
+            elif [ -n "$RENDER_DEPLOY_HOOK_URL" ];     then target=render
+            elif [ -n "$FLY_API_TOKEN" ];              then target=fly
+            else target=none; fi
+          fi
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          case "$target" in
+            none) echo "note=No deployment credential is configured — verification passed, nothing was deployed. Add VERCEL_TOKEN (Vercel), RENDER_DEPLOY_HOOK_URL (Render) or FLY_API_TOKEN (Fly.io) under Settings → Secrets and variables → Actions." >> "$GITHUB_OUTPUT" ;;
+            *)    echo "note=Deploying to $target." >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  vercel:
+    name: Deploy → Vercel
+    needs: plan
+    if: needs.plan.outputs.target == 'vercel'
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build and deploy
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx --yes vercel@latest pull --yes --environment=production
+          npx --yes vercel@latest build --prod
+          url=$(npx --yes vercel@latest deploy --prebuilt --prod --yes 2>/dev/null | tail -n 1 | tr -d '\r')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "### Deployed to Vercel" >> "$GITHUB_STEP_SUMMARY"
+          echo "$url" >> "$GITHUB_STEP_SUMMARY"
+
+  render:
+    name: Deploy → Render
+    needs: plan
+    if: needs.plan.outputs.target == 'render'
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Trigger the Render deploy hook
+        id: deploy
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_URL: ${{ vars.RENDER_URL }}
+        run: |
+          curl -fsSL -X POST "$RENDER_DEPLOY_HOOK_URL"
+          echo "url=${RENDER_URL}" >> "$GITHUB_OUTPUT"
+
+  fly:
+    name: Deploy → Fly.io
+    needs: plan
+    if: needs.plan.outputs.target == 'fly'
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy --remote-only
+          echo "url=https://$(flyctl apps list --json | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["Hostname"])' 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+
+  smoke:
+    name: Smoke test the live URL
+    needs: [plan, vercel, render, fly]
+    if: |
+      always() &&
+      needs.plan.outputs.target != 'none' &&
+      (needs.vercel.result == 'success' || needs.render.result == 'success' || needs.fly.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Resolve URL
+        id: url
+        env:
+          VERCEL_URL: ${{ needs.vercel.outputs.url }}
+          RENDER_URL: ${{ needs.render.outputs.url }}
+          FLY_URL: ${{ needs.fly.outputs.url }}
+        run: |
+          url="${VERCEL_URL}${RENDER_URL}${FLY_URL}"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Live URL: $url"
+      - name: Run the 231 checks against production
+        if: steps.url.outputs.url != ''
+        run: python scripts/smoke_test.py "${{ steps.url.outputs.url }}"
+
+  report:
+    name: Result
+    needs: [plan, vercel, render, fly, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ needs.plan.outputs.note }}"
